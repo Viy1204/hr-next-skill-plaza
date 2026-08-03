@@ -6,19 +6,30 @@
 # community/test account, NOT a corporate tenant. Per ADR-0005 the Base must end
 # up owned by the community (群主), never by an individual's employer tenant.
 #
-# Usage: bash scripts/setup-bitable.sh
+# Usage: LARK_PROFILE=<profile> bash scripts/setup-bitable.sh
 # Prints the env lines to paste into .env.local when it finishes.
+#
+# LARK_PROFILE is how ADR-0005 is enforced in practice: lark-cli's default
+# profile on a member's machine is whatever they logged into last, which is
+# usually their employer tenant. Always name the community profile explicitly.
 
 set -euo pipefail
+
+LARK=(lark-cli)
+[[ -n "${LARK_PROFILE:-}" ]] && LARK+=(--profile "$LARK_PROFILE")
 
 FUNCTIONS='[{"name":"招聘"},{"name":"组织与人才发展"},{"name":"薪酬福利"},{"name":"绩效"},{"name":"培训"},{"name":"员工关系"},{"name":"HR 数据分析"},{"name":"HR 运营与共享服务"}]'
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 echo "==> identity check"
-lark-cli auth status --jq '.identities.user.userName' || true
-read -r -p "Is this the right (non-corporate) account? [y/N] " confirm
-[[ "$confirm" == "y" || "$confirm" == "Y" ]] || { echo "aborted"; exit 1; }
+"${LARK[@]}" contact +get-user --as user --format json | grep -E '"name"|"tenant_key"' || true
+if [[ "${CONFIRM:-}" == "y" ]]; then
+  echo "    CONFIRM=y — identity already checked by the caller"
+else
+  read -r -p "Is this the right (non-corporate) account? [y/N] " confirm
+  [[ "$confirm" == "y" || "$confirm" == "Y" ]] || { echo "aborted"; exit 1; }
+fi
 
 cat > "$WORK/packages.json" <<'JSON'
 [
@@ -83,28 +94,32 @@ cat > "$WORK/config.json" <<'JSON'
 JSON
 
 echo "==> creating base"
-lark-cli base +base-create --as user --name "HR NEXT 技能广场" --time-zone Asia/Shanghai \
+"${LARK[@]}" base +base-create --as user --name "HR NEXT 技能广场" --time-zone Asia/Shanghai \
   --table-name "技能包" --fields "$(cat "$WORK/packages.json")" > "$WORK/base.json"
-BASE=$(lark-cli drive +search --as user --query "HR NEXT 技能广场" --format json \
-  | grep -oE '"token": "[^"]+"' | head -1 | cut -d'"' -f4)
+# The token comes straight out of the create response — searching Drive for it
+# needs search:docs:read, which the community app has no reason to hold. Keep the
+# `|| true`: a failed grep would trip set -e before the error message below, and
+# the Base would already exist by then with nobody holding its token.
+BASE=$(grep -oE '"base_token": *"[^"]+"' "$WORK/base.json" | head -1 | cut -d'"' -f4 || true)
+[[ -n "$BASE" ]] || { echo "base created but no base_token in the response:"; cat "$WORK/base.json"; exit 1; }
 echo "    base token: $BASE"
 
 # 许愿 must exist before the tables that link to it.
 for pair in "许愿:wishes" "技能条目:entries" "附议:endorsements" "认领:claims" "配置:config"; do
   name="${pair%%:*}"; file="${pair##*:}"
   echo "==> creating table $name"
-  lark-cli base +table-create --as user --base-token "$BASE" --name "$name" \
+  "${LARK[@]}" base +table-create --as user --base-token "$BASE" --name "$name" \
     --fields "$(cat "$WORK/$file.json")" --jq '.ok'
 done
 
 echo "==> linking 技能包 → 许愿 (delivery)"
-PKG=$(lark-cli base +table-list --as user --base-token "$BASE" --format json \
+PKG=$("${LARK[@]}" base +table-list --as user --base-token "$BASE" --format json \
   | grep -B1 '"name": "技能包"' | grep -oE 'tbl[A-Za-z0-9]+' | head -1)
-lark-cli base +field-create --as user --base-token "$BASE" --table-id "$PKG" \
+"${LARK[@]}" base +field-create --as user --base-token "$BASE" --table-id "$PKG" \
   --json '{"type":"link","name":"交付的许愿","link_table":"许愿","bidirectional":true,"bidirectional_link_field_name":"交付的技能包","description":"关联即视为该许愿已交付；与认领无关"}' --jq '.ok'
 
 echo "==> seeding 配置"
-CFG=$(lark-cli base +table-list --as user --base-token "$BASE" --format json \
+CFG=$("${LARK[@]}" base +table-list --as user --base-token "$BASE" --format json \
   | grep -B1 '"name": "配置"' | grep -oE 'tbl[A-Za-z0-9]+' | head -1)
 cat > "$WORK/config-rows.json" <<'JSON'
 {"create_records":[
@@ -115,15 +130,18 @@ cat > "$WORK/config-rows.json" <<'JSON'
  {"配置项":"推送文案-已交付","值":"✅ 许愿已交付：{标题}\n交付技能包：{技能包名称}\n去取得：{链接}","说明":""}
 ]}
 JSON
-lark-cli base +record-batch-create --as user --base-token "$BASE" --table-id "$CFG" \
+"${LARK[@]}" base +record-batch-create --as user --base-token "$BASE" --table-id "$CFG" \
   --json "$(cat "$WORK/config-rows.json")" --jq '.ok'
 
 echo
 echo "==> paste into .env.local"
 echo "BITABLE_BASE_TOKEN=$BASE"
-lark-cli base +table-list --as user --base-token "$BASE" --format json \
-  | python3 -c '
+"${LARK[@]}" base +table-list --as user --base-token "$BASE" --format json > "$WORK/tables.json"
+# Heredoc rather than python3 -c: the script body needs both quote styles, and
+# escaping them through a shell-quoted -c argument is how this line broke before.
+python3 - "$WORK/tables.json" <<'PY'
 import json, sys
+
 mapping = {
     "技能包": "BITABLE_TABLE_PACKAGES",
     "技能条目": "BITABLE_TABLE_ENTRIES",
@@ -132,8 +150,8 @@ mapping = {
     "认领": "BITABLE_TABLE_CLAIMS",
     "配置": "BITABLE_TABLE_CONFIG",
 }
-for table in json.load(sys.stdin)["data"]["tables"]:
+for table in json.load(open(sys.argv[1], encoding="utf-8"))["data"]["tables"]:
     key = mapping.get(table["name"])
     if key:
-        print(f"{key}={table[\"id\"]}")
-'
+        print(f"{key}={table['id']}")
+PY
