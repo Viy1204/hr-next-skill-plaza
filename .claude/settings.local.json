@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/zhuyifan/.agents/skills/grill-with-docs/**)",
+      "Read(//c/Users/zhuyifan/.agents/skills/grilling/**)",
+      "Read(//c/Users/zhuyifan/.agents/skills/domain-modeling/**)"
+    ]
+  }
+}
