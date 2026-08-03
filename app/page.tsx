@@ -56,7 +56,7 @@ export default async function Home() {
           </div>
           <div className="duo-card dark">
             <div className="duo-num">{wishes.length}</div>
-            <div className="duo-label">条许愿 · 其中 {openForClaim.length} 条开放认领</div>
+            <div className="duo-label">条许愿 · 其中 {openForClaim.length} 条待认领</div>
             <p className="duo-desc">只描述痛点，不用想技术方案。附议多了，就会有人来认领。</p>
             <p className="duo-actions">
               <Link className="btn" href="/wishes/new">
@@ -103,7 +103,7 @@ export default async function Home() {
 
       <section className="band band-cream">
         <p className="section-eyebrow">许愿池</p>
-        <h2>这些痛点还在等人认领</h2>
+        <h2>这些痛点还在等人来做</h2>
         {topWishes.length === 0 ? (
           <>
             <p className="section-desc">还没有许愿。第一条可以由你来提 —— 只描述痛点，不用想技术方案。</p>

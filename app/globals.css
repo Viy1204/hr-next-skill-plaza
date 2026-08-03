@@ -27,6 +27,10 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  /* 通栏区块用 calc(50% - 50vw) 破出 .wrap 的宽度限制，但 100vw 含竖向滚动条宽度而
+     50% 不含，有经典滚动条时会多出十几像素的横向滚动。必须挂在 html 上 —— 溢出是量在
+     根元素上的，挂 body 拦不住。clip 而不是 hidden：不产生滚动容器，不影响 sticky。 */
+  overflow-x: clip;
 }
 
 body {
@@ -35,6 +39,8 @@ body {
   color: var(--ink);
   font: 300 15px/1.5 -apple-system, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;
+  /* 必须 html 和 body 都设 —— 只设根元素时 Chrome 仍允许横向拖动那几像素。 */
+  overflow-x: clip;
 }
 
 /* 内页顶部的淡网幕（首页 hero 有自己的强网幕） */
@@ -126,6 +132,13 @@ header.top nav > a {
 header.top nav > a:hover {
   color: var(--ink);
   text-decoration: none;
+}
+
+/* 品牌 134px + 两个链接 + 「我要许愿」按钮 + padding 一共要 404px，手机只有 375px，
+   撑出来的 29px 会让全站出现横向滚动条。手机档收掉这颗 CTA —— 首页 hero 和许愿池页
+   各自都有入口，不靠顶栏。768px 以上再放出来。 */
+header.top nav > .btn.sm {
+  display: none;
 }
 
 /* ---- 按钮（全部胶囊形） ---- */
@@ -651,6 +664,10 @@ footer.bottom .wrap {
 }
 
 @media (min-width: 768px) {
+  header.top nav > .btn.sm {
+    display: inline-flex;
+  }
+
   .hero {
     padding-top: 168px;
     padding-bottom: 120px;
