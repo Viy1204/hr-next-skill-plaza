@@ -12,14 +12,14 @@ export default async function SkillPackagePage({ params }: { params: Promise<{ i
 
   return (
     <>
-      <h1>{pkg.name}</h1>
+      <h1 className="mono">{pkg.name}</h1>
       <p className="lede">{pkg.summary}</p>
 
       <p className="meta">
         <span className="tag">{pkg.carrier === "github" ? "GitHub 仓库" : "zip 包"}</span>
         {pkg.submitterNickname ? <span>提报人：{pkg.submitterNickname}</span> : null}
-        <span>
-          取得数 <span className="count">{pkg.takeCount}</span>
+        <span className="count">
+          取得数 <b>{pkg.takeCount}</b>
         </span>
       </p>
 
@@ -45,11 +45,11 @@ export default async function SkillPackagePage({ params }: { params: Promise<{ i
       ) : (
         pkg.entries.map((entry) => (
           <div className="card" key={entry.id}>
-            <h3>{entry.name}</h3>
-            <p style={{ margin: "0 0 8px" }}>{entry.description}</p>
-            <p className="meta">
+            <div className="skill-head">
+              <span className="skill-name">{entry.name}</span>
               <span className="tag">{entry.hrFunction}</span>
-            </p>
+            </div>
+            <p className="skill-desc">{entry.description}</p>
           </div>
         ))
       )}

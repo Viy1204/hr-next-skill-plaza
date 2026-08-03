@@ -47,20 +47,25 @@ export default async function SkillsPage({
         <p className="empty">这个条件下还没有技能条目。</p>
       ) : (
         entries.map((entry) => (
-          <div className="card" key={entry.id}>
-            <h3>
-              <Link href={`/skills/${entry.packageId}`}>{entry.name}</Link>
-            </h3>
-            <p style={{ margin: "0 0 8px" }}>{entry.description}</p>
-            <p className="meta">
+          <div className="card hoverable" key={entry.id}>
+            <div className="skill-head">
+              <Link className="skill-name" href={`/skills/${entry.packageId}`}>
+                {entry.name}
+              </Link>
+              <span className="count">
+                取得数 <b>{entry.packageTakeCount}</b>
+              </span>
+            </div>
+            <p className="skill-desc">{entry.description}</p>
+            <div className="skill-foot">
               <span className="tag">{entry.hrFunction}</span>
-              <span>
-                所属技能包：<Link href={`/skills/${entry.packageId}`}>{entry.packageName}</Link>
+              <span className="meta">
+                所属技能包：
+                <Link className="mono" href={`/skills/${entry.packageId}`}>
+                  {entry.packageName}
+                </Link>
               </span>
-              <span>
-                取得数 <span className="count">{entry.packageTakeCount}</span>
-              </span>
-            </p>
+            </div>
           </div>
         ))
       )}

@@ -85,7 +85,7 @@ export default function NewWishPage() {
         </label>
 
         <p style={{ marginTop: 20 }}>
-          <button className="btn warm" type="submit" disabled={pending}>
+          <button className="btn" type="submit" disabled={pending}>
             {pending ? "提交中…" : "许下这个愿"}
           </button>
         </p>

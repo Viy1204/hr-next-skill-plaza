@@ -16,7 +16,7 @@ export default async function WishPage({ params }: { params: Promise<{ id: strin
       <h1>{wish.title}</h1>
       <p className="meta">
         <span className="tag">{wish.hrFunction}</span>
-        <span className="tag">{wish.status}</span>
+        <span className="tag status">{wish.status}</span>
         {wish.wisherNickname ? <span>由 {wish.wisherNickname} 提出</span> : null}
       </p>
 
