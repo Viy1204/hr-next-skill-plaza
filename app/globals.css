@@ -1,0 +1,197 @@
+/* Mobile first: the link is only shared inside the Feishu group, so nearly every
+   visitor arrives on a phone. Desktop just gets a wider column. */
+:root {
+  --ink: #1b2233;
+  --muted: #6b7385;
+  --line: #e5e8ef;
+  --accent: #1f4bd8;
+  --warm: #e8730a;
+  --bg: #f7f8fb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.wrap {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px 16px 56px;
+}
+
+header.top {
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+header.top .wrap {
+  padding: 12px 16px;
+  display: flex;
+  gap: 16px;
+  align-items: baseline;
+}
+
+header.top strong {
+  font-size: 17px;
+}
+
+header.top nav {
+  display: flex;
+  gap: 14px;
+  font-size: 14px;
+}
+
+h1 {
+  font-size: 22px;
+  margin: 20px 0 6px;
+}
+
+h2 {
+  font-size: 17px;
+  margin: 28px 0 10px;
+}
+
+p.lede {
+  color: var(--muted);
+  margin: 0 0 18px;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.card h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+
+.meta {
+  color: var(--muted);
+  font-size: 13px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tag {
+  display: inline-block;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 13px;
+  color: var(--muted);
+  background: #fff;
+}
+
+.tag.on {
+  border-color: var(--accent);
+  color: #fff;
+  background: var(--accent);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.btn {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  border-radius: 10px;
+  padding: 11px 18px;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.btn.warm {
+  background: var(--warm);
+}
+
+.btn.ghost {
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.note {
+  background: #fff8ef;
+  border: 1px solid #f2ddc2;
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: #7a5321;
+  font-size: 13px;
+}
+
+.pre {
+  white-space: pre-wrap;
+  background: #f2f4f9;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+label {
+  display: block;
+  margin: 14px 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+label .hint {
+  display: block;
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  background: #fff;
+}
+
+textarea {
+  min-height: 110px;
+}
+
+.search {
+  margin-bottom: 12px;
+}
+
+.empty {
+  color: var(--muted);
+  padding: 24px 0;
+}
