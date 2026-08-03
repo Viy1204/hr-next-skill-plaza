@@ -1,4 +1,6 @@
 import { FeishuBitable } from "@/adapters/feishu-bitable";
+import { DEMO_SEED } from "@/adapters/demo-seed";
+import { InMemoryBitable, InMemoryNotifier } from "@/adapters/in-memory";
 import { ConsoleNotifier, WebhookNotifier } from "@/adapters/webhook-notifier";
 import type { Deps } from "@/app/use-cases";
 
@@ -11,10 +13,31 @@ function required(name: string): string {
   return value;
 }
 
-let cached: Deps | null = null;
+// Next.js re-evaluates modules on recompile and across route workers, so a plain
+// module-level variable loses the in-memory store between requests. Parking it on
+// globalThis keeps local demo mode usable end to end.
+const globalCache = globalThis as typeof globalThis & { __plazaDeps?: Deps };
+
+let cached: Deps | null = globalCache.__plazaDeps ?? null;
 
 export function deps(): Deps {
   if (cached) return cached;
+
+  // No credentials yet? Run entirely in memory so the site is browsable before any
+  // Feishu account exists. Data resets on restart — never deploy in this mode.
+  if (!process.env.FEISHU_APP_ID) {
+    console.warn(
+      "[runtime] FEISHU_APP_ID not set — running in local demo mode with in-memory data. " +
+        "Nothing is persisted. Run scripts/setup-bitable.sh against a dedicated community account to go real.",
+    );
+    cached = {
+      bitable: new InMemoryBitable(DEMO_SEED),
+      notifier: new InMemoryNotifier(),
+      baseUrl: process.env.PUBLIC_BASE_URL ?? "http://localhost:3000",
+    };
+    globalCache.__plazaDeps = cached;
+    return cached;
+  }
 
   const webhookUrl = process.env.FEISHU_GROUP_WEBHOOK_URL;
   cached = {
@@ -34,6 +57,7 @@ export function deps(): Deps {
     notifier: webhookUrl ? new WebhookNotifier(webhookUrl) : new ConsoleNotifier(),
     baseUrl: process.env.PUBLIC_BASE_URL ?? "http://localhost:3000",
   };
+  globalCache.__plazaDeps = cached;
   return cached;
 }
 
