@@ -55,7 +55,7 @@ export default function WishActions({
         附议 <span className="count">{count}</span>
       </p>
       <p>
-        <button className="btn warm" onClick={endorse} disabled={endorsed}>
+        <button className="btn" onClick={endorse} disabled={endorsed}>
           {endorsed ? "已记下你的痛点" : "我也有这个痛点"}
         </button>{" "}
         <button className="btn ghost" onClick={() => setClaiming((value) => !value)}>

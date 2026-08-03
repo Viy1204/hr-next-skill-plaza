@@ -20,7 +20,7 @@ export default async function WishesPage({ searchParams }: { searchParams: Promi
       <p className="lede">按附议数排序。附议的意思是「这个痛点我也有」，不是「这想法不错」。</p>
 
       <p>
-        <Link className="btn warm" href="/wishes/new">
+        <Link className="btn" href="/wishes/new">
           我要许愿
         </Link>
       </p>
@@ -44,19 +44,21 @@ export default async function WishesPage({ searchParams }: { searchParams: Promi
         <p className="empty">还没有许愿。第一条可以由你来提。</p>
       ) : (
         wishes.map((wish) => (
-          <div className="card" key={wish.id}>
+          <div className="card hoverable" key={wish.id}>
             <h3>
               <Link href={`/wishes/${wish.id}`}>{wish.title}</Link>
             </h3>
-            <p className="meta">
-              <span className="tag">{wish.hrFunction}</span>
-              <span className="tag">{wish.status}</span>
-              <span>
-                附议 <span className="count">{wish.endorsementCount}</span>
+            <div className="skill-foot">
+              <span className="meta">
+                <span className="tag">{wish.hrFunction}</span>
+                <span className="tag status">{wish.status}</span>
+                {wish.claimerNicknames.length > 0 ? <span>{wish.claimerNicknames.length} 人在做</span> : null}
+                {wish.wisherNickname ? <span>由 {wish.wisherNickname} 提出</span> : null}
               </span>
-              {wish.claimerNicknames.length > 0 ? <span>{wish.claimerNicknames.length} 人在做</span> : null}
-              {wish.wisherNickname ? <span>由 {wish.wisherNickname} 提出</span> : null}
-            </p>
+              <span className="count">
+                附议 <b>{wish.endorsementCount}</b>
+              </span>
+            </div>
           </div>
         ))
       )}
