@@ -2,29 +2,35 @@
 # Seed the first 12 技能条目 across 6 技能包 (Viy1204/hr-skills ×5, recruiting-copilot ×1).
 # v1 has no upload flow, so the catalogue is populated by hand — this is that hand.
 #
-# Usage: BASE=<base_token> bash scripts/seed-catalogue.sh
-# Requires lark-cli authenticated as the community/test account (see ADR-0005).
+# Usage: BASE=<base_token> LARK_PROFILE=<profile> bash scripts/seed-catalogue.sh
+# Requires lark-cli authenticated as the community/test account (see ADR-0005) —
+# name that profile explicitly, the default one is whoever logged in last.
 
 set -euo pipefail
 : "${BASE:?set BASE to the Bitable base token}"
 
+LARK=(lark-cli)
+[[ -n "${LARK_PROFILE:-}" ]] && LARK+=(--profile "$LARK_PROFILE")
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-table_id() {
-  lark-cli base +table-list --as user --base-token "$BASE" --format json \
-    | python3 -c "
+# Both ids in one pass. A per-name lookup would have to pass 技能包 / 技能条目 as
+# argv, and Windows python does not get those bytes back intact — the match
+# silently fails and the ids come out empty.
+"${LARK[@]}" base +table-list --as user --base-token "$BASE" --format json > "$WORK/tables.json"
+eval "$(python3 - "$WORK/tables.json" <<'PY'
 import json, sys
-name = sys.argv[1]
-for table in json.load(sys.stdin)['data']['tables']:
-    if table['name'] == name:
-        print(table['id'])
-        break
-" "$1"
-}
 
-PKG=$(table_id 技能包)
-ENTRY=$(table_id 技能条目)
+wanted = {"技能包": "PKG", "技能条目": "ENTRY"}
+for table in json.load(open(sys.argv[1], encoding="utf-8"))["data"]["tables"]:
+    variable = wanted.get(table["name"])
+    if variable:
+        print(f"{variable}={table['id']}")
+PY
+)"
+: "${PKG:?技能包 table not found in $BASE}"
+: "${ENTRY:?技能条目 table not found in $BASE}"
 
 cat > "$WORK/packages.json" <<'JSON'
 {"create_records":[
@@ -38,11 +44,20 @@ cat > "$WORK/packages.json" <<'JSON'
 JSON
 
 echo "==> creating 技能包"
-lark-cli base +record-batch-create --as user --base-token "$BASE" --table-id "$PKG" \
+"${LARK[@]}" base +record-batch-create --as user --base-token "$BASE" --table-id "$PKG" \
   --json "$(cat "$WORK/packages.json")" --jq '.ok'
 
 echo "==> resolving package record ids"
-lark-cli base +record-list --as user --base-token "$BASE" --table-id "$PKG" --format json > "$WORK/pkg-rows.json"
+# A batch-create is not immediately visible to the next list call, and the entry
+# build below indexes packages by name — an early read yields an empty index and
+# a KeyError three lines later. Wait for all six to show up.
+for attempt in 1 2 3 4 5; do
+  "${LARK[@]}" base +record-list --as user --base-token "$BASE" --table-id "$PKG" --format json > "$WORK/pkg-rows.json"
+  count=$(python3 -c "import json,sys;print(len(json.load(open(sys.argv[1],encoding='utf-8'))['data']['record_id_list']))" "$WORK/pkg-rows.json")
+  [[ "$count" -ge 6 ]] && break
+  echo "    only $count rows visible, retrying ($attempt)"
+  sleep 2
+done
 
 # Each hr-skills capability is independently takeable (the repo supports shallow
 # cloning a single skill), so each is its own package with one entry.
@@ -92,7 +107,7 @@ json.dump({"create_records": records}, sys.stdout, ensure_ascii=False)
 PY
 
 echo "==> creating 技能条目"
-lark-cli base +record-batch-create --as user --base-token "$BASE" --table-id "$ENTRY" \
+"${LARK[@]}" base +record-batch-create --as user --base-token "$BASE" --table-id "$ENTRY" \
   --json "$(cat "$WORK/entries.json")" --jq '.ok'
 
 echo "done: 6 技能包 / 12 技能条目"
