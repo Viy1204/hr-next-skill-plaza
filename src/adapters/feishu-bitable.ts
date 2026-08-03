@@ -64,13 +64,25 @@ function asHrFunction(value: unknown): HrFunction {
   return (HR_FUNCTIONS as readonly string[]).includes(text) ? (text as HrFunction) : "HR 运营与共享服务";
 }
 
-/** Link cells read back as {link_record_ids: [...]} but are written as a bare id array. */
-function asLinkIds(value: unknown): string[] {
-  if (Array.isArray(value)) return value.filter((v): v is string => typeof v === "string");
-  if (value && typeof value === "object") {
-    const ids = (value as { link_record_ids?: unknown }).link_record_ids;
-    if (Array.isArray(ids)) return ids.filter((v): v is string => typeof v === "string");
+/**
+ * Link cells are written as a bare id array but read back in three different
+ * shapes: {link_record_ids: [...]}, a bare id array, and — what the live Base
+ * actually returns — an array of {record_ids, text_arr, table_id} groups. Miss
+ * that third one and every 技能条目 looks like it belongs to no 技能包, so the
+ * whole catalogue renders empty with no error anywhere.
+ */
+export function asLinkIds(value: unknown): string[] {
+  const strings = (input: unknown): string[] =>
+    Array.isArray(input) ? input.filter((v): v is string => typeof v === "string") : [];
+
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => {
+      if (typeof item === "string") return [item];
+      if (item && typeof item === "object") return strings((item as { record_ids?: unknown }).record_ids);
+      return [];
+    });
   }
+  if (value && typeof value === "object") return strings((value as { link_record_ids?: unknown }).link_record_ids);
   return [];
 }
 
