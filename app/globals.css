@@ -37,7 +37,9 @@ body {
   margin: 0;
   background: var(--canvas);
   color: var(--ink);
-  font: 300 15px/1.5 -apple-system, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+  /* 正文 400，不是 300。300 的中文在 Windows 1x 屏上发虚，15px 正文和 13px 灰色元信息
+     尤其糊。细体只留给 24px 以上的展示型标题 —— 那个尺寸下它是这套设计的味道来源。 */
+  font: 400 15px/1.5 -apple-system, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;
   /* 必须 html 和 body 都设 —— 只设根元素时 Chrome 仍允许横向拖动那几像素。 */
   overflow-x: clip;
@@ -123,13 +125,15 @@ header.top nav {
   gap: 16px;
 }
 
-header.top nav > a {
+/* :not(.btn) 是必须的 —— 这条选择器的特异性比 .btn 高，不排除按钮的话「我要许愿」
+   会拿到 --ink-mute 的灰字压在靛紫底上，对比只有 1.3:1。 */
+header.top nav > a:not(.btn) {
   font-size: 14px;
   color: var(--ink-mute);
   white-space: nowrap;
 }
 
-header.top nav > a:hover {
+header.top nav > a:not(.btn):hover {
   color: var(--ink);
   text-decoration: none;
 }
@@ -428,7 +432,7 @@ p.lede {
 .card h3 {
   margin: 0 0 8px;
   font-size: 17px;
-  font-weight: 300;
+  font-weight: 400;
   line-height: 1.4;
 }
 
@@ -588,7 +592,7 @@ label {
 
 label .hint {
   display: block;
-  font-weight: 300;
+  font-weight: 400;
   color: var(--ink-mute);
   font-size: 13px;
   margin-top: 2px;
@@ -603,7 +607,7 @@ textarea {
   padding: 10px 12px;
   font-family: inherit;
   font-size: 15px;
-  font-weight: 300;
+  font-weight: 400;
   color: var(--ink);
   background: var(--canvas);
   min-height: 42px;
