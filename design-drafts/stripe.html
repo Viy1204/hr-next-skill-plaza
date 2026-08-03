@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HR NEXT 技能广场</title>
+<style>
+  :root{
+    --primary:#533afd;
+    --primary-deep:#4434d4;
+    --primary-press:#2e2b8c;
+    --primary-soft:#665efd;
+    --primary-bg-subdued-hover:#b9b9f9;
+    --brand-dark-900:#1c1e54;
+    --ink:#0d253d;
+    --ink-secondary:#273951;
+    --ink-mute:#64748d;
+    --ink-mute-2:#61718a;
+    --on-primary:#ffffff;
+    --canvas:#ffffff;
+    --canvas-soft:#f6f9fc;
+    --canvas-cream:#f5e9d4;
+    --hairline:#e3e8ee;
+    --hairline-input:#a8c3de;
+    --ruby:#ea2261;
+    --magenta:#f96bee;
+    --lemon:#9b6829;
+    --shadow-blue:#003770;
+    --shadow-1: rgba(0,55,112,0.08) 0 1px 3px;
+    --shadow-2: rgba(0,55,112,0.08) 0 8px 24px, rgba(0,55,112,0.04) 0 2px 6px;
+    --font: -apple-system, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --mono: "SF Mono", Consolas, monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%;}
+  body{
+    font-family:var(--font);
+    font-feature-settings:"ss01";
+    font-size:15px;
+    font-weight:300;
+    line-height:1.4;
+    color:var(--ink);
+    background:var(--canvas);
+  }
+  .tnum{font-feature-settings:"tnum";letter-spacing:-0.42px;}
+  a{color:var(--primary);text-decoration:none;}
+  .container{max-width:1200px;margin:0 auto;padding:0 24px;}
+
+  /* ---------- 导航 ---------- */
+  .nav{
+    position:absolute;top:0;left:0;right:0;z-index:10;
+    padding:16px 24px;
+  }
+  .nav-inner{
+    max-width:1200px;margin:0 auto;
+    display:flex;align-items:center;justify-content:space-between;gap:16px;
+  }
+  .brand{
+    font-size:15px;font-weight:400;color:var(--ink);
+    letter-spacing:-0.2px;white-space:nowrap;
+  }
+  .brand strong{font-weight:400;}
+  .nav-links{display:flex;align-items:center;gap:16px;}
+  .nav-links a{
+    font-size:15px;font-weight:300;color:var(--ink-mute-2);
+    white-space:nowrap;
+  }
+  .nav-links a:hover{color:var(--ink);}
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;
+    font-size:16px;font-weight:400;line-height:1.0;
+    padding:8px 16px;border-radius:9999px;
+    border:none;cursor:pointer;white-space:nowrap;
+    min-height:40px;
+  }
+  .btn-primary{background:var(--primary);color:var(--on-primary);}
+  .btn-primary:hover{background:var(--primary-deep);}
+  .btn-primary:active{background:var(--primary-press);}
+  .btn-secondary{
+    background:var(--canvas);color:var(--primary);
+    border:1px solid var(--primary);
+  }
+  .btn-sm{font-size:14px;padding:8px 16px;}
+  .nav .btn-primary{min-height:36px;padding:8px 16px;font-size:14px;}
+
+  /* ---------- Hero + 渐变网幕 ---------- */
+  .hero{
+    position:relative;
+    overflow:hidden;
+    padding:120px 0 88px;
+  }
+  .mesh{
+    position:absolute;inset:0;z-index:0;
+    filter:blur(60px) saturate(1.05);
+    transform:scale(1.3);
+  }
+  .mesh span{position:absolute;border-radius:50%;display:block;}
+  .mesh .m1{width:70%;height:75%;left:-15%;top:-25%;background:#f5e9d4;}
+  .mesh .m2{width:60%;height:65%;left:2%;top:-18%;background:#f0a35e;}
+  .mesh .m3{width:60%;height:75%;left:32%;top:-30%;background:#b9b9f9;opacity:.9;}
+  .mesh .m4{width:58%;height:72%;left:55%;top:-22%;background:#533afd;opacity:.85;}
+  .mesh .m5{width:50%;height:65%;left:78%;top:-15%;background:#ea2261;opacity:.7;}
+  .mesh .m6{width:40%;height:55%;left:60%;top:-10%;background:#f96bee;opacity:.55;}
+  .hero-fade{
+    position:absolute;left:0;right:0;bottom:0;height:140px;z-index:1;
+    background:linear-gradient(to bottom, rgba(255,255,255,0), var(--canvas));
+  }
+  .hero-inner{position:relative;z-index:2;}
+  .eyebrow{
+    font-size:10px;font-weight:400;line-height:1.15;letter-spacing:0.1px;
+    text-transform:uppercase;
+    color:var(--primary-deep);
+    display:inline-block;
+    background:rgba(255,255,255,.75);
+    padding:4px 8px;border-radius:9999px;
+    margin-bottom:16px;
+  }
+  h1{
+    font-size:36px;font-weight:300;line-height:1.12;
+    letter-spacing:-0.02em;
+    color:var(--ink);
+    max-width:640px;
+  }
+  .hero-sub{
+    margin-top:16px;
+    font-size:16px;font-weight:300;line-height:1.5;
+    color:var(--ink-secondary);
+    max-width:560px;
+  }
+  .hero-cta{margin-top:24px;display:flex;gap:12px;flex-wrap:wrap;}
+
+  /* ---------- 区块通用 ---------- */
+  section{padding:64px 0;}
+  .section-eyebrow{
+    font-size:10px;font-weight:400;line-height:1.15;letter-spacing:0.1px;
+    text-transform:uppercase;color:var(--ink-mute);
+    margin-bottom:8px;
+  }
+  h2{
+    font-size:26px;font-weight:300;line-height:1.12;letter-spacing:-0.26px;
+    color:var(--ink);
+  }
+  .section-desc{margin-top:8px;font-size:15px;color:var(--ink-mute);max-width:520px;}
+
+  /* ---------- 双入口 ---------- */
+  .band-soft{background:var(--canvas-soft);}
+  .duo{display:grid;grid-template-columns:1fr;gap:16px;margin-top:32px;}
+  .duo-card{
+    background:var(--canvas);
+    border:1px solid var(--hairline);
+    border-radius:12px;
+    padding:32px;
+    box-shadow:var(--shadow-1);
+    display:flex;flex-direction:column;
+  }
+  .duo-card.dark{
+    background:var(--brand-dark-900);
+    border-color:var(--brand-dark-900);
+    color:var(--on-primary);
+  }
+  .duo-num{
+    font-size:48px;font-weight:300;line-height:1.15;letter-spacing:-0.96px;
+    font-feature-settings:"tnum";
+    color:var(--ink);
+  }
+  .duo-card.dark .duo-num{color:var(--on-primary);}
+  .duo-label{margin-top:4px;font-size:13px;font-weight:400;letter-spacing:-0.39px;color:var(--ink-mute);}
+  .duo-card.dark .duo-label{color:rgba(255,255,255,.72);}
+  .duo-desc{margin-top:12px;font-size:15px;color:var(--ink-secondary);flex:1;}
+  .duo-card.dark .duo-desc{color:rgba(255,255,255,.85);}
+  .duo-actions{margin-top:24px;display:flex;gap:12px;flex-wrap:wrap;}
+  .duo-card.dark .btn-secondary{
+    background:transparent;color:var(--on-primary);
+    border:1px solid rgba(255,255,255,.4);
+  }
+
+  /* ---------- 搜索与筛选 ---------- */
+  .filter-row{margin-top:32px;}
+  .search-input{
+    width:100%;
+    background:var(--canvas);
+    border:1px solid var(--hairline-input);
+    border-radius:6px;
+    padding:8px 12px;
+    font-family:var(--font);
+    font-size:15px;font-weight:300;line-height:1.4;
+    color:var(--ink);
+    min-height:40px;
+    outline:none;
+  }
+  .search-input::placeholder{color:var(--ink-mute);}
+  .search-input:focus{border-color:var(--primary);}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;}
+  .chip{
+    font-size:13px;font-weight:400;line-height:1.0;letter-spacing:0;
+    padding:8px 12px;border-radius:9999px;
+    border:1px solid var(--hairline);
+    background:var(--canvas);color:var(--ink-mute);
+    cursor:pointer;min-height:32px;
+  }
+  .chip.active{
+    background:var(--primary-bg-subdued-hover);
+    border-color:var(--primary-bg-subdued-hover);
+    color:var(--primary-deep);
+  }
+
+  /* ---------- 技能卡片 ---------- */
+  .card-list{margin-top:24px;display:flex;flex-direction:column;gap:16px;}
+  .skill-card{
+    background:var(--canvas);
+    border:1px solid var(--hairline);
+    border-radius:12px;
+    padding:24px;
+    box-shadow:var(--shadow-1);
+    display:flex;flex-direction:column;gap:8px;
+  }
+  .skill-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;}
+  .skill-name{
+    font-family:var(--mono);
+    font-size:16px;font-weight:400;letter-spacing:-0.2px;
+    color:var(--ink);
+  }
+  .skill-count{
+    font-size:13px;font-weight:400;letter-spacing:-0.39px;
+    font-feature-settings:"tnum";
+    color:var(--ink-mute);white-space:nowrap;
+  }
+  .skill-count b{font-weight:400;color:var(--ink);}
+  .skill-desc{font-size:15px;color:var(--ink-secondary);}
+  .skill-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:4px;}
+  .tag{
+    display:inline-block;
+    font-size:10px;font-weight:400;line-height:1.15;letter-spacing:0.1px;
+    padding:4px 8px;border-radius:9999px;
+    background:var(--primary-bg-subdued-hover);
+    color:var(--primary-deep);
+  }
+  .skill-link{font-size:14px;font-weight:400;color:var(--primary);}
+  .more-row{margin-top:24px;text-align:center;}
+  .more-row a{font-size:15px;color:var(--primary);}
+
+  /* ---------- 许愿卡片（暖色间歇带） ---------- */
+  .band-cream{background:var(--canvas-cream);}
+  .wish-card{
+    background:var(--canvas);
+    border:1px solid var(--hairline);
+    border-radius:12px;
+    padding:24px;
+    box-shadow:var(--shadow-1);
+    display:flex;flex-direction:column;gap:8px;
+  }
+  .wish-title{font-size:18px;font-weight:300;line-height:1.4;color:var(--ink);}
+  .wish-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .status-tag{
+    display:inline-block;
+    font-size:10px;font-weight:400;line-height:1.15;letter-spacing:0.1px;
+    padding:4px 8px;border-radius:4px;
+    background:var(--canvas-soft);
+    border:1px solid var(--hairline);
+    color:var(--ink-mute);
+  }
+  .wish-vote{
+    font-size:13px;font-weight:400;letter-spacing:-0.39px;
+    font-feature-settings:"tnum";
+    color:var(--ink-mute);
+  }
+  .wish-vote b{font-weight:400;color:var(--ink);}
+  .band-cream .more-row a{color:var(--primary-deep);}
+
+  /* ---------- 页脚 ---------- */
+  footer{
+    background:var(--canvas);
+    border-top:1px solid var(--hairline);
+    padding:64px 24px;
+  }
+  .footer-inner{
+    max-width:1200px;margin:0 auto;
+    font-size:13px;font-weight:400;line-height:1.4;letter-spacing:-0.39px;
+    color:var(--ink-mute);
+    display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;
+  }
+
+  @media (min-width:768px){
+    h1{font-size:56px;line-height:1.03;letter-spacing:-1.4px;}
+    .duo{grid-template-columns:1fr 1fr;}
+    .card-list{display:grid;grid-template-columns:repeat(3,1fr);}
+    .card-list.wish{grid-template-columns:repeat(2,1fr);}
+    .hero{padding:160px 0 112px;}
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="mesh" aria-hidden="true">
+    <span class="m1"></span><span class="m2"></span><span class="m3"></span>
+    <span class="m4"></span><span class="m5"></span><span class="m6"></span>
+  </div>
+  <div class="hero-fade" aria-hidden="true"></div>
+
+  <nav class="nav">
+    <div class="nav-inner">
+      <div class="brand"><strong>HR NEXT</strong> 技能广场</div>
+      <div class="nav-links">
+        <a href="#skills">技能目录</a>
+        <a href="#wishes">许愿池</a>
+        <a class="btn btn-primary" href="#wishes">我要许愿</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container hero-inner">
+    <span class="eyebrow">HR NEXT 社群小站</span>
+    <h1>把做出来的能力分出去，把没人做的痛点提出来</h1>
+    <p class="hero-sub">HR NEXT 是跨公司社群。这里放两样东西：群友已经做出来的技能包，和大家还等着有人做的许愿。</p>
+    <div class="hero-cta">
+      <a class="btn btn-primary" href="#skills">去逛技能目录</a>
+      <a class="btn btn-secondary" href="#wishes">看看许愿池</a>
+    </div>
+  </div>
+</header>
+
+<section class="band-soft">
+  <div class="container">
+    <p class="section-eyebrow">两个入口</p>
+    <h2>取走现成的，或者许下想要的</h2>
+    <div class="duo">
+      <div class="duo-card">
+        <div class="duo-num tnum">12</div>
+        <div class="duo-label">个技能条目已上架</div>
+        <p class="duo-desc">群友做好的自动化脚本和工具，覆盖招聘、考勤、花名册等日常场景，拿来就能用。</p>
+        <div class="duo-actions">
+          <a class="btn btn-primary" href="#skills">去逛技能目录</a>
+        </div>
+      </div>
+      <div class="duo-card dark">
+        <div class="duo-num tnum">8</div>
+        <div class="duo-label">条许愿 · 其中 <span class="tnum">3</span> 条开放认领</div>
+        <p class="duo-desc">把工作里最费时间的痛点说出来，大家附议，有人认领就开工做出来。</p>
+        <div class="duo-actions">
+          <a class="btn btn-primary" href="#wishes">我要许愿</a>
+          <a class="btn btn-secondary" href="#wishes">看看别人在等什么</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="skills">
+  <div class="container">
+    <p class="section-eyebrow">技能目录</p>
+    <h2>群友已经做出来的技能包</h2>
+    <p class="section-desc">每个条目都标注了所属职能和累计取得数，方便判断是不是自己需要的。</p>
+
+    <div class="filter-row">
+      <input class="search-input" type="search" placeholder="搜索技能，比如「花名册」「考勤」">
+      <div class="chips">
+        <button class="chip active">全部</button>
+        <button class="chip">招聘</button>
+        <button class="chip">组织与人才发展</button>
+        <button class="chip">薪酬福利</button>
+        <button class="chip">绩效</button>
+        <button class="chip">HR 数据分析</button>
+      </div>
+    </div>
+
+    <div class="card-list">
+      <div class="skill-card">
+        <div class="skill-head">
+          <span class="skill-name">feishu-roster</span>
+          <span class="skill-count tnum">取得数 <b>21</b></span>
+        </div>
+        <p class="skill-desc">实时拉取花名册并导出 Excel + JSON，含入职、转正、试用期等字段。</p>
+        <div class="skill-foot">
+          <span class="tag">HR 运营与共享服务</span>
+          <a class="skill-link" href="#">查看 →</a>
+        </div>
+      </div>
+      <div class="skill-card">
+        <div class="skill-head">
+          <span class="skill-name">boss-cli</span>
+          <span class="skill-count tnum">取得数 <b>14</b></span>
+        </div>
+        <p class="skill-desc">Boss 直聘自动化：聊天列表、候选人对话、在线简历截图。</p>
+        <div class="skill-foot">
+          <span class="tag">招聘</span>
+          <a class="skill-link" href="#">查看 →</a>
+        </div>
+      </div>
+      <div class="skill-card">
+        <div class="skill-head">
+          <span class="skill-name">feishu-attendance-analyzer</span>
+          <span class="skill-count tnum">取得数 <b>9</b></span>
+        </div>
+        <p class="skill-desc">全组织考勤分析：垫底排名、加班异常、部门对比。</p>
+        <div class="skill-foot">
+          <span class="tag">HR 数据分析</span>
+          <a class="skill-link" href="#">查看 →</a>
+        </div>
+      </div>
+    </div>
+    <div class="more-row"><a href="#">查看全部 12 个技能条目 →</a></div>
+  </div>
+</section>
+
+<section class="band-cream" id="wishes">
+  <div class="container">
+    <p class="section-eyebrow">许愿池</p>
+    <h2>这些痛点还在等人认领</h2>
+    <p class="section-desc">说出你的痛点，附议高的优先被认领。认领后做出来的技能包会回到技能目录。</p>
+
+    <div class="card-list wish">
+      <div class="wish-card">
+        <div class="wish-title">每月核对花名册要花一整天</div>
+        <div class="wish-meta">
+          <span class="tag">HR 运营与共享服务</span>
+          <span class="status-tag">待认领</span>
+        </div>
+        <div class="skill-foot">
+          <span class="wish-vote tnum">附议 <b>17</b></span>
+          <a class="skill-link" href="#">附议 →</a>
+        </div>
+      </div>
+      <div class="wish-card">
+        <div class="wish-title">校招季几百份简历手工初筛太慢</div>
+        <div class="wish-meta">
+          <span class="tag">招聘</span>
+          <span class="status-tag">待认领</span>
+        </div>
+        <div class="skill-foot">
+          <span class="wish-vote tnum">附议 <b>11</b></span>
+          <a class="skill-link" href="#">附议 →</a>
+        </div>
+      </div>
+    </div>
+    <div class="more-row"><a href="#">查看全部 8 条许愿 →</a></div>
+  </div>
+</section>
+
+<footer>
+  <div class="footer-inner">
+    <span>HR NEXT 社群 · 技能共享与许愿共创</span>
+    <span>仅限群内成员使用</span>
+  </div>
+</footer>
+
+</body>
+</html>
