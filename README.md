@@ -97,7 +97,7 @@ HOST=viy bash scripts/deploy.sh
 |---|---|
 | `deploy/hr-plaza.service` | `/etc/systemd/system/` |
 | `deploy/Caddyfile` | `/etc/caddy/` |
-| `deploy/hr-plaza-sync.{service,timer}` | `/etc/systemd/system/`（可选，见运营手册「交付」一节） |
+| `deploy/hr-plaza-sync.{service,timer}` | `/etc/systemd/system/`，每 10 分钟同步一次交付关联 |
 
 ## 服务器备忘
 
