@@ -1,4 +1,4 @@
-import { InMemoryBitable, InMemoryNotifier, type Seed } from "@/adapters/in-memory";
+import { InMemoryBitable, InMemoryNotifier, InMemoryStorage, type Seed } from "@/adapters/in-memory";
 import type { Deps } from "@/app/use-cases";
 
 // The one and only way to build a test environment. Every test uses this — do
@@ -10,8 +10,9 @@ export const BASE_URL = "https://plaza.test";
 export function harness(seed: Seed = {}) {
   const bitable = new InMemoryBitable(seed);
   const notifier = new InMemoryNotifier();
-  const deps: Deps = { bitable, notifier, baseUrl: BASE_URL };
-  return { deps, bitable, notifier };
+  const storage = new InMemoryStorage();
+  const deps: Deps = { bitable, notifier, storage, baseUrl: BASE_URL };
+  return { deps, bitable, notifier, storage };
 }
 
 export function get(path: string, cookieHeader?: string) {

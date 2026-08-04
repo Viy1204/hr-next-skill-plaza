@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { handleSubmitPackage, handleSyncDeliveries } from "@/http/handlers";
+import { handleSubmitPackage, handleSyncDeliveries, handleTake } from "@/http/handlers";
 import { getSkillPackage, listSkillEntries, listWishes } from "@/app/use-cases";
-import { harness, post } from "./support/harness";
+import { harness, post, get, BASE_URL } from "./support/harness";
 
 const submission = {
   name: "feishu-roster",
@@ -101,5 +101,99 @@ describe("自助上架技能包", () => {
     for (const body of cases) {
       expect((await submit(deps, body)).status).toBe(400);
     }
+  });
+});
+
+const ZIP_BYTES = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x0a, 0x00, 0x00, 0x00]);
+
+function multipart(fields: Record<string, string>, file?: { name: string; bytes: Uint8Array }) {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(fields)) form.set(key, value);
+  if (file) form.set("file", new Blob([file.bytes as BlobPart], { type: "application/zip" }), file.name);
+  return new Request(`${BASE_URL}/api/packages`, { method: "POST", body: form });
+}
+
+const zipFields = {
+  name: "考勤分析工具",
+  summary: "一个打包好的考勤分析脚本",
+  carrier: "zip",
+  prerequisites: "Python 3.11",
+  entries: JSON.stringify([{ name: "考勤分析", description: "跑一遍出报表", hrFunction: "HR 数据分析" }]),
+};
+
+describe("上传 zip 上架", () => {
+  it("上传的文件在发布后能从取得出口下载到", async () => {
+    const { deps, bitable } = harness();
+
+    const created = await handleSubmitPackage(multipart(zipFields, { name: "attendance.zip", bytes: ZIP_BYTES }), deps);
+    expect(created.status).toBe(201);
+    const { id } = (await created.json()) as { id: string };
+    await bitable.setReviewStatus(id, "已发布");
+
+    const response = await handleTake(get(`/get/${id}`), deps, id);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/zip");
+    expect(response.headers.get("content-disposition")).toContain("attendance.zip");
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(ZIP_BYTES);
+  });
+
+  it("待审期间下载不到 —— 审核这道闸对附件同样成立", async () => {
+    const { deps } = harness();
+    const { id } = (await (
+      await handleSubmitPackage(multipart(zipFields, { name: "attendance.zip", bytes: ZIP_BYTES }), deps)
+    ).json()) as { id: string };
+
+    expect((await handleTake(get(`/get/${id}`), deps, id)).status).toBe(404);
+  });
+
+  it("取得数照常累加", async () => {
+    const { deps, bitable } = harness();
+    const { id } = (await (
+      await handleSubmitPackage(multipart(zipFields, { name: "attendance.zip", bytes: ZIP_BYTES }), deps)
+    ).json()) as { id: string };
+    await bitable.setReviewStatus(id, "已发布");
+
+    await handleTake(get(`/get/${id}`), deps, id);
+
+    expect((await bitable.getPackage(id))?.takeCount).toBe(1);
+  });
+
+  it("不是 zip 的文件会被拒，且不会留下半截记录", async () => {
+    const { deps, storage } = harness();
+    const notZip = new Uint8Array([0x4d, 0x5a, 0x90, 0x00]);
+
+    const response = await handleSubmitPackage(multipart(zipFields, { name: "tool.zip", bytes: notZip }), deps);
+
+    expect(response.status).toBe(400);
+    expect(await deps.bitable.listPackages()).toEqual([]);
+    expect(storage.count).toBe(0);
+  });
+
+  it("github 载体不接受上传的文件", async () => {
+    const { deps } = harness();
+
+    const response = await handleSubmitPackage(
+      multipart({ ...zipFields, carrier: "github", takeUrl: "https://github.com/a/b" }, { name: "x.zip", bytes: ZIP_BYTES }),
+      deps,
+    );
+
+    expect(response.status).toBe(400);
+  });
+
+  it("zip 载体既没上传也没填地址会被拒", async () => {
+    const { deps } = harness();
+
+    expect((await handleSubmitPackage(multipart(zipFields), deps)).status).toBe(400);
+  });
+
+  it("上传失败就不建记录，目录里不会出现一个下不来的包", async () => {
+    const { deps, storage } = harness();
+    storage.uploadsFail = true;
+
+    await expect(
+      handleSubmitPackage(multipart(zipFields, { name: "attendance.zip", bytes: ZIP_BYTES }), deps),
+    ).rejects.toThrow();
+    expect(await deps.bitable.listPackages()).toEqual([]);
   });
 });

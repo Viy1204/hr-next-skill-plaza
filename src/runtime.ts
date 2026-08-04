@@ -1,6 +1,8 @@
 import { FeishuBitable } from "@/adapters/feishu-bitable";
 import { DEMO_SEED } from "@/adapters/demo-seed";
-import { InMemoryBitable, InMemoryNotifier } from "@/adapters/in-memory";
+import { InMemoryBitable, InMemoryNotifier, InMemoryStorage } from "@/adapters/in-memory";
+import { FeishuDrive } from "@/adapters/feishu-drive";
+import { TenantToken } from "@/adapters/tenant-token";
 import { ConsoleNotifier, WebhookNotifier } from "@/adapters/webhook-notifier";
 import type { Deps } from "@/app/use-cases";
 
@@ -33,6 +35,7 @@ export function deps(): Deps {
     cached = {
       bitable: new InMemoryBitable(DEMO_SEED),
       notifier: new InMemoryNotifier(),
+      storage: new InMemoryStorage(),
       baseUrl: process.env.PUBLIC_BASE_URL ?? "http://localhost:3000",
     };
     globalCache.__plazaDeps = cached;
@@ -40,6 +43,7 @@ export function deps(): Deps {
   }
 
   const webhookUrl = process.env.FEISHU_GROUP_WEBHOOK_URL;
+  const auth = new TenantToken({ appId: required("FEISHU_APP_ID"), appSecret: required("FEISHU_APP_SECRET") });
   cached = {
     bitable: new FeishuBitable({
       appId: required("FEISHU_APP_ID"),
@@ -53,7 +57,8 @@ export function deps(): Deps {
         claims: required("BITABLE_TABLE_CLAIMS"),
         config: required("BITABLE_TABLE_CONFIG"),
       },
-    }),
+    }, auth),
+    storage: new FeishuDrive(auth, process.env.FEISHU_DRIVE_FOLDER_TOKEN, process.env.FEISHU_REVIEWER_OPEN_ID),
     notifier: webhookUrl ? new WebhookNotifier(webhookUrl) : new ConsoleNotifier(),
     baseUrl: process.env.PUBLIC_BASE_URL ?? "http://localhost:3000",
   };

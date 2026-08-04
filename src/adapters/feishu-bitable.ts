@@ -1,4 +1,5 @@
 import type { BitablePort } from "@/ports";
+import { TenantToken } from "./tenant-token";
 import { HR_FUNCTIONS, type Carrier, type Claim, type HrFunction, type ReviewStatus, type SkillEntry, type SkillPackage, type Wish, type WishStatus } from "@/domain/types";
 
 // The real Feishu Bitable port. Everything Feishu-shaped — tokens, wire format,
@@ -87,34 +88,17 @@ export function asLinkIds(value: unknown): string[] {
 }
 
 export class FeishuBitable implements BitablePort {
-  private token: { value: string; expiresAt: number } | null = null;
   private readonly endpoint: string;
 
-  constructor(private readonly config: BitableConfig) {
+  constructor(
+    private readonly config: BitableConfig,
+    private readonly auth: TenantToken = new TenantToken(config),
+  ) {
     this.endpoint = config.endpoint ?? "https://open.feishu.cn";
   }
 
-  private async accessToken(): Promise<string> {
-    if (this.token && this.token.expiresAt > Date.now() + 60_000) return this.token.value;
-
-    const response = await fetch(`${this.endpoint}/open-apis/auth/v3/tenant_access_token/internal`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ app_id: this.config.appId, app_secret: this.config.appSecret }),
-    });
-    const body = (await response.json()) as { code: number; msg: string; tenant_access_token?: string; expire?: number };
-    if (body.code !== 0 || !body.tenant_access_token) {
-      throw new Error(`tenant_access_token failed: ${body.code} ${body.msg}`);
-    }
-    this.token = {
-      value: body.tenant_access_token,
-      expiresAt: Date.now() + (body.expire ?? 7200) * 1000,
-    };
-    return this.token.value;
-  }
-
   private async call<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const token = await this.accessToken();
+    const token = await this.auth.value();
     const response = await fetch(`${this.endpoint}/open-apis/bitable/v1/apps/${this.config.baseToken}${path}`, {
       ...init,
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...init.headers },
@@ -163,6 +147,7 @@ export class FeishuBitable implements BitablePort {
       summary: asText(row.fields["简介"]),
       carrier: (carrier === "zip" ? "zip" : "github") as Carrier,
       takeUrl: takeUrl || null,
+      attachmentToken: asText(row.fields["附件文件标识"]) || null,
       prerequisites: asText(row.fields["前置条件"]),
       submitterNickname: asText(row.fields["提报人昵称"]),
       reviewStatus: (asText(row.fields["审核状态"]) || "待审") as ReviewStatus,
@@ -206,6 +191,7 @@ export class FeishuBitable implements BitablePort {
     // 取得地址是 url 样式的文本列：读回来是 {text, link}，写进去也必须是这个形状，
     // 给裸字符串会被拒（1254068 URLFieldConvFail）。
     if (input.takeUrl) fields["取得地址"] = { text: input.takeUrl, link: input.takeUrl };
+    if (input.attachmentToken) fields["附件文件标识"] = input.attachmentToken;
     if (input.deliveredWishIds.length > 0) fields["交付的许愿"] = input.deliveredWishIds;
     const { record } = await this.create(this.config.tables.packages, fields);
     return this.toPackage(record);

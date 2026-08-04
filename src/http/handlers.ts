@@ -68,11 +68,27 @@ export async function handleTake(request: Request, deps: Deps, packageId: string
   for (const [id, at] of taken) if (now - at > windowMs) taken.delete(id);
 
   const outcome = await takePackage(deps, packageId, { alreadyTaken: taken.has(packageId) });
-  if (!outcome?.redirectTo) return new Response("Not found", { status: 404 });
+  if (!outcome) return new Response("Not found", { status: 404 });
 
   taken.set(packageId, now);
-  const headers = new Headers({ Location: outcome.redirectTo });
-  headers.append("Set-Cookie", cookie(TAKEN_COOKIE, serialiseTaken(taken), Math.ceil(windowMs / 1000)));
+  const takenCookie = cookie(TAKEN_COOKIE, serialiseTaken(taken), Math.ceil(windowMs / 1000));
+
+  if (outcome.attachmentToken) {
+    // 自助上传的 zip：文件在云空间里不公开，出口用应用身份取回来直接转给访客。
+    // 流式转发，不在内存里攒整个文件 —— 部署机内存本来就紧。
+    const file = await deps.storage.open(outcome.attachmentToken);
+    if (!file) return new Response("Not found", { status: 404 });
+    return new Response(file.body, {
+      headers: new Headers({
+        "content-type": "application/zip",
+        "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
+        "set-cookie": takenCookie,
+      }),
+    });
+  }
+
+  const headers = new Headers({ Location: outcome.redirectTo! });
+  headers.append("Set-Cookie", takenCookie);
   return new Response(null, { status: 302, headers });
 }
 
@@ -107,23 +123,56 @@ export async function handleCreateWish(request: Request, deps: Deps) {
 }
 
 const MAX_ENTRIES = 12;
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 function isHttpUrl(value: string) {
   return /^https?:\/\/\S+$/.test(value);
 }
 
-export async function handleSubmitPackage(request: Request, deps: Deps) {
-  const body = await request.json().catch(() => null);
-  if (!body || typeof body !== "object") return badRequest("invalid body");
+/** 表单带文件时是 multipart，纯链接提交仍走 JSON。entries 在 multipart 里是一段 JSON 文本。 */
+async function readSubmission(request: Request): Promise<{ body: Record<string, unknown>; file: File | null } | null> {
+  if (!request.headers.get("content-type")?.includes("multipart/form-data")) {
+    const body = await request.json().catch(() => null);
+    return body && typeof body === "object" ? { body: body as Record<string, unknown>, file: null } : null;
+  }
 
-  const { name, summary, carrier, takeUrl, prerequisites, submitterNickname, deliveredWishId, entries } =
-    body as Record<string, unknown>;
+  const form = await request.formData().catch(() => null);
+  if (!form) return null;
+  const body: Record<string, unknown> = {};
+  for (const [key, value] of form.entries()) if (typeof value === "string") body[key] = value;
+  if (typeof body.entries === "string") {
+    const parsed = JSON.parse(body.entries as string) as unknown;
+    body.entries = parsed;
+  }
+  const file = form.get("file");
+  return { body, file: file instanceof File && file.size > 0 ? file : null };
+}
+
+export async function handleSubmitPackage(request: Request, deps: Deps) {
+  const submission = await readSubmission(request).catch(() => null);
+  if (!submission) return badRequest("invalid body");
+  const { body, file } = submission;
+
+  const { name, summary, carrier, takeUrl, prerequisites, submitterNickname, deliveredWishId, entries } = body;
 
   const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
   if (!text(name)) return badRequest("name is required");
   if (!text(summary)) return badRequest("summary is required");
   if (carrier !== "github" && carrier !== "zip") return badRequest("carrier must be github or zip");
-  if (!isHttpUrl(text(takeUrl))) return badRequest("takeUrl must be an http(s) url");
+
+  // 上传的文件与取得地址二选一，zip 载体才允许上传。
+  if (file && carrier !== "zip") return badRequest("only the zip carrier takes an uploaded file");
+  if (!file && !isHttpUrl(text(takeUrl))) return badRequest("takeUrl must be an http(s) url");
+
+  let upload: { fileName: string; bytes: Uint8Array } | null = null;
+  if (file) {
+    if (file.size > MAX_UPLOAD_BYTES) return badRequest("uploaded file is larger than 20MB");
+    if (!file.name.toLowerCase().endsWith(".zip")) return badRequest("uploaded file must be a .zip");
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    // 只看扩展名不够：这个出口会把文件原样发给别人，至少确认它真是个 zip。
+    if (bytes[0] !== 0x50 || bytes[1] !== 0x4b) return badRequest("uploaded file is not a zip archive");
+    upload = { fileName: file.name, bytes };
+  }
   // 前置条件是目录的必填字段：取回去装不上，绝大多数是这一栏没写清楚。
   if (!text(prerequisites)) return badRequest("prerequisites is required");
 
@@ -148,6 +197,7 @@ export async function handleSubmitPackage(request: Request, deps: Deps) {
     summary: text(summary),
     carrier,
     takeUrl: text(takeUrl),
+    upload,
     prerequisites: text(prerequisites),
     submitterNickname: text(submitterNickname),
     deliveredWishId: text(deliveredWishId) || null,

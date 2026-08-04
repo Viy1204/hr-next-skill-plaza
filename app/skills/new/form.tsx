@@ -13,8 +13,17 @@ interface EntryDraft {
 const EMPTY_ENTRY: EntryDraft = { name: "", description: "", hrFunction: "" };
 const MAX_ENTRIES = 12;
 
+/** 后端的校验消息是给开发看的英文，这里翻成填表人能照着改的话。 */
+function messageFor(error: string | undefined) {
+  if (error?.includes("larger than 20MB")) return "文件超过 20MB，太大了。放 GitHub 或者给个直链吧。";
+  if (error?.includes("must be a .zip") || error?.includes("not a zip archive")) return "只收 .zip 文件。";
+  if (error?.includes("takeUrl")) return "要么上传一个 zip，要么填一个 http(s) 开头的地址。";
+  return "提交失败：名称、简介、前置条件都要填，且至少要有一个技能条目。";
+}
+
 export default function SubmitPackageForm({ wishes }: { wishes: { id: string; title: string }[] }) {
   const [entries, setEntries] = useState<EntryDraft[]>([{ ...EMPTY_ENTRY }]);
+  const [carrier, setCarrier] = useState("github");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
@@ -28,23 +37,13 @@ export default function SubmitPackageForm({ wishes }: { wishes: { id: string; ti
     setPending(true);
     setError(null);
     const form = new FormData(event.currentTarget);
-    const response = await fetch("/api/packages", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        name: form.get("name"),
-        summary: form.get("summary"),
-        carrier: form.get("carrier"),
-        takeUrl: form.get("takeUrl"),
-        prerequisites: form.get("prerequisites"),
-        submitterNickname: form.get("submitterNickname"),
-        deliveredWishId: form.get("deliveredWishId"),
-        entries,
-      }),
-    });
+    // 带文件时必须走 multipart，条目列表塞成一段 JSON 文本随行。
+    form.set("entries", JSON.stringify(entries));
+    const response = await fetch("/api/packages", { method: "POST", body: form });
     setPending(false);
     if (!response.ok) {
-      setError("提交失败：名称、简介、取得地址、前置条件都要填，且至少要有一个技能条目。");
+      const body = (await response.json().catch(() => null)) as { error?: string } | null;
+      setError(messageFor(body?.error));
       return;
     }
     setSubmitted(true);
@@ -91,17 +90,32 @@ export default function SubmitPackageForm({ wishes }: { wishes: { id: string; ti
 
         <label>
           载体类型
-          <select name="carrier" required defaultValue="github">
+          <select name="carrier" required value={carrier} onChange={(event) => setCarrier(event.target.value)}>
             <option value="github">GitHub 仓库</option>
-            <option value="zip">zip 包直链</option>
+            <option value="zip">zip 包</option>
           </select>
         </label>
 
-        <label>
-          取得地址
-          <span className="hint">仓库地址或文件直链，以 http:// 或 https:// 开头</span>
-          <input name="takeUrl" type="url" required placeholder="https://github.com/..." />
-        </label>
+        {carrier === "github" ? (
+          <label>
+            仓库地址
+            <span className="hint">作者往仓库推新版，取的人自动拿到最新的，这边不用改</span>
+            <input name="takeUrl" type="url" required placeholder="https://github.com/..." />
+          </label>
+        ) : (
+          <>
+            <label>
+              上传 zip 文件（选填）
+              <span className="hint">最大 20MB。上传的文件存在飞书云空间，不公开，只能从本站的取得出口下载</span>
+              <input name="file" type="file" accept=".zip,application/zip" />
+            </label>
+            <label>
+              或者填一个直链
+              <span className="hint">已经有能直接下载的地址就填这里，两者填一个即可</span>
+              <input name="takeUrl" type="url" placeholder="https://..." />
+            </label>
+          </>
+        )}
 
         <label>
           前置条件
