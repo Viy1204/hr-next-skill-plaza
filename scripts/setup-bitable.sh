@@ -40,7 +40,7 @@ cat > "$WORK/packages.json" <<'JSON'
   {"type":"text","name":"附件文件标识","description":"自助上传的 zip 存在云空间里的文件标识。不公开，取得时由 /get 出口用应用身份取回。与取得地址二选一"},
   {"type":"text","name":"前置条件","description":"运行时、浏览器、平台登录态、API 凭证等使用者需自备的东西"},
   {"type":"text","name":"提报人昵称"},
-  {"type":"select","name":"审核状态","multiple":false,"default_value":["待审"],"options":[{"name":"待审","hue":"Orange"},{"name":"已发布","hue":"Green"},{"name":"已下架","hue":"Gray"}]},
+  {"type":"select","name":"审核状态","multiple":false,"default_value":["待审"],"options":[{"name":"待审","hue":"Orange"},{"name":"已发布","hue":"Green"},{"name":"已下架","hue":"Gray"},{"name":"已拒绝","hue":"Red"}],"description":"待审队列只放还没看过的：看过不发布就改成已拒绝，别让它一直躺在待审里"},
   {"type":"number","name":"取得数","style":{"type":"plain","precision":0},"default_value":0,"description":"被拿走的次数。不代表被使用，也不代表跑得起来"},
   {"type":"created_at","name":"创建时间","style":{"format":"yyyy-MM-dd HH:mm"}}
 ]
@@ -128,7 +128,8 @@ cat > "$WORK/config-rows.json" <<'JSON'
  {"配置项":"取得去重窗口小时","值":"24","说明":"同一匿名标识对同一技能包在该时长内只计一次取得"},
  {"配置项":"推送文案-新许愿","值":"🕯 新许愿：{标题}\n{适用职能} · 由 {许愿人昵称} 提出\n有同样痛点就去点「我也有这个痛点」：{链接}","说明":"占位符用 {字段名}"},
  {"配置项":"推送文案-开放认领","值":"📣 已有 {附议数} 人有同一个痛点：{标题}\n现在开放认领，有空想试试的来接：{链接}","说明":""},
- {"配置项":"推送文案-已交付","值":"✅ 许愿已交付：{标题}\n交付技能包：{技能包名称}\n去取得：{链接}","说明":""}
+ {"配置项":"推送文案-已交付","值":"✅ 许愿已交付：{标题}\n交付技能包：{技能包名称}\n去取得：{链接}","说明":""},
+ {"配置项":"推送文案-新技能包待审","值":"📦 新技能包已提交待审：{名称}（by {提报人昵称}）\n运营核对前置条件与取得地址后上架","说明":"提交即推：给运营的到货铃，也是作者的公开署名"}
 ]}
 JSON
 "${LARK[@]}" base +record-batch-create --as user --base-token "$BASE" --table-id "$CFG" \
