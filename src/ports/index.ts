@@ -35,6 +35,15 @@ export interface BitablePort {
   getConfig(): Promise<Record<string, string>>;
 }
 
+/**
+ * 自助上传的 zip 存在飞书云空间，不进多维表格也不落服务器磁盘。第三个出站边界，
+ * 同样只在 src/adapters 里知道飞书的形状。
+ */
+export interface StoragePort {
+  upload(input: { fileName: string; bytes: Uint8Array }): Promise<string>;
+  open(token: string): Promise<{ fileName: string; body: ReadableStream<Uint8Array> } | null>;
+}
+
 export type NotificationKind = "wish-created" | "wish-open-for-claim" | "wish-delivered";
 
 export interface Notification {

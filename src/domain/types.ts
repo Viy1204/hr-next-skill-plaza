@@ -37,6 +37,9 @@ export interface SkillPackage {
   /** Repo URL for the github carrier, file URL for zip. Never shown raw — the
    *  page only ever links to the /get outlet so the take gets counted. */
   takeUrl: string | null;
+  /** zip 载体走自助上传时，文件存在飞书云空间，这里只记文件标识。文件不公开，
+   *  取得时由 /get 出口用应用身份取回再转给访客 —— 待审的包因此下载不到。 */
+  attachmentToken: string | null;
   prerequisites: string;
   submitterNickname: string;
   reviewStatus: ReviewStatus;

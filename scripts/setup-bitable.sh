@@ -37,6 +37,7 @@ cat > "$WORK/packages.json" <<'JSON'
   {"type":"text","name":"简介"},
   {"type":"select","name":"载体类型","multiple":false,"default_value":["github"],"options":[{"name":"github","hue":"Blue"},{"name":"zip","hue":"Green"}]},
   {"type":"text","name":"取得地址","style":{"type":"url"},"description":"github 载体填仓库 URL，zip 载体填文件直链。页面上不暴露裸链，一律经 /get 出口"},
+  {"type":"text","name":"附件文件标识","description":"自助上传的 zip 存在云空间里的文件标识。不公开，取得时由 /get 出口用应用身份取回。与取得地址二选一"},
   {"type":"text","name":"前置条件","description":"运行时、浏览器、平台登录态、API 凭证等使用者需自备的东西"},
   {"type":"text","name":"提报人昵称"},
   {"type":"select","name":"审核状态","multiple":false,"default_value":["待审"],"options":[{"name":"待审","hue":"Orange"},{"name":"已发布","hue":"Green"},{"name":"已下架","hue":"Gray"}]},

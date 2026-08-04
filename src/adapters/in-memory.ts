@@ -1,4 +1,4 @@
-import type { BitablePort, Notification, NotifierPort } from "@/ports";
+import type { BitablePort, Notification, NotifierPort, StoragePort } from "@/ports";
 import type { Claim, HrFunction, SkillEntry, SkillPackage, Wish } from "@/domain/types";
 
 // In-memory implementations of the two Feishu ports. Used by every test; also
@@ -45,6 +45,7 @@ export class InMemoryBitable implements BitablePort {
       summary: p.summary ?? "",
       carrier: p.carrier ?? "github",
       takeUrl: p.takeUrl ?? null,
+      attachmentToken: p.attachmentToken ?? null,
       prerequisites: p.prerequisites ?? "",
       submitterNickname: p.submitterNickname ?? "",
       reviewStatus: p.reviewStatus ?? "已发布",
@@ -196,5 +197,34 @@ export class InMemoryNotifier implements NotifierPort {
 
   of(kind: Notification["kind"]) {
     return this.sent.filter((n) => n.kind === kind);
+  }
+}
+
+/** 内存存储：测试与本地演示用，文件只活在这个进程里。 */
+export class InMemoryStorage implements StoragePort {
+  private files = new Map<string, { fileName: string; bytes: Uint8Array }>();
+  private seq = 0;
+  /** Set to make the next upload throw, to prove a failed upload does not create a half-listed package. */
+  uploadsFail = false;
+
+  async upload(input: { fileName: string; bytes: Uint8Array }) {
+    if (this.uploadsFail) throw new Error("drive upload failed");
+    this.seq += 1;
+    const token = `file${this.seq}`;
+    this.files.set(token, input);
+    return token;
+  }
+
+  async open(token: string) {
+    const found = this.files.get(token);
+    if (!found) return null;
+    return {
+      fileName: found.fileName,
+      body: new Blob([found.bytes as BlobPart]).stream() as ReadableStream<Uint8Array>,
+    };
+  }
+
+  get count() {
+    return this.files.size;
   }
 }

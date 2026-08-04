@@ -17,7 +17,7 @@
 ## 先读这些再动代码
 
 - [CONTEXT.md](CONTEXT.md) —— 领域术语表。界面文案和代码标识**必须**用它的词。「下载量 / 使用量 / 点赞 / 开放认领 / 适用人群」是明令禁用的
-- [docs/adr/](docs/adr/) —— 八条已定架构决策。提架构建议前先读，不重复讨论已定的事；要推翻某条就写新 ADR，别改旧的
+- [docs/adr/](docs/adr/) —— 九条已定架构决策。提架构建议前先读，不重复讨论已定的事；要推翻某条就写新 ADR，别改旧的
 
 最容易踩的四条：不做飞书登录（[0001](docs/adr/0001-no-feishu-login-cross-tenant.md)，跨租户不成立）、认领是软意向不加锁（[0003](docs/adr/0003-claim-is-soft-intent-not-a-lock.md)）、技能包/技能条目两级且取得数只挂包上（[0006](docs/adr/0006-two-level-package-and-entry.md)）、群通道只出站不监听（[0007](docs/adr/0007-webhook-only-no-group-message-listening.md)）。
 
@@ -27,15 +27,16 @@
 浏览器 ──> Next.js (App Router, SSR)
               │
               ├── BitablePort ──> 飞书多维表格   ← 唯一数据存储
+              ├── StoragePort ──> 飞书云空间     ← 自助上传的 zip，不公开
               └── NotifierPort ─> 飞书群机器人   ← 只出站
 ```
 
 数据存在多维表格而不是数据库，是为了把运营权交回社群：运营能直接在表里改数据、加字段、建视图，不必每次找开发（[ADR-0002](docs/adr/0002-bitable-as-datastore-vercel-as-frontend.md)）。
 
-飞书那两个出站边界是系统**唯一的测试 seam**：
+飞书那几个出站边界是系统**唯一的测试 seam**：
 
-- `src/ports.ts` —— 两个端口的接口
-- `src/adapters/feishu-bitable.ts` —— 真实多维表格适配器，所有飞书形状（token、线上字段名、单元格结构）只出现在这个文件里
+- `src/ports/index.ts` —— 三个端口的接口
+- `src/adapters/feishu-bitable.ts` / `feishu-drive.ts` —— 真实适配器，所有飞书形状（token、线上字段名、单元格结构）只出现在这里
 - `src/adapters/in-memory.ts` —— 内存实现，测试和本地演示用
 - `src/app/use-cases.ts` —— 全部业务规则，不认识飞书
 - `app/` —— 页面与路由，三行包装，把真实端口传进去
@@ -68,6 +69,8 @@ npx vitest run
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 自建应用凭证。**不设 APP_ID 就是内存模式** |
 | `BITABLE_BASE_TOKEN` | 多维表格 Base token |
 | `BITABLE_TABLE_*` | 六张表的 table id：`PACKAGES` `ENTRIES` `WISHES` `ENDORSEMENTS` `CLAIMS` `CONFIG` |
+| `FEISHU_DRIVE_FOLDER_TOKEN` | 自助上传的 zip 存哪个文件夹，留空即应用自己的根目录 |
+| `FEISHU_REVIEWER_OPEN_ID` | 运营的 open_id，上传后把文件共享给他审核，不配他就打不开要审的 zip |
 | `FEISHU_GROUP_WEBHOOK_URL` | 群自定义机器人 webhook。**不配只打日志，不阻塞许愿** |
 | `DELIVERY_SYNC_SECRET` | 交付同步接口的共享密钥 |
 | `PUBLIC_BASE_URL` | 群推送文案里的链接前缀，线上是 `https://viy1204.me` |

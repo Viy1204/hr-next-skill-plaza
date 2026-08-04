@@ -1,9 +1,10 @@
 import { deriveWishStatus, type HrFunction, type SkillEntry, type SkillPackage, type Wish } from "@/domain/types";
-import type { BitablePort, NotifierPort } from "@/ports";
+import type { BitablePort, NotifierPort, StoragePort } from "@/ports";
 
 export interface Deps {
   bitable: BitablePort;
   notifier: NotifierPort;
+  storage: StoragePort;
   baseUrl: string;
 }
 
@@ -72,7 +73,9 @@ export interface PackageSubmission {
   name: string;
   summary: string;
   carrier: SkillPackage["carrier"];
+  /** github 载体填仓库地址；zip 载体二选一：填直链，或上传文件。 */
   takeUrl: string;
+  upload: { fileName: string; bytes: Uint8Array } | null;
   prerequisites: string;
   submitterNickname: string;
   /** 作者声明这个技能包交付了哪条许愿；运营发布后同步才会认这条关联。 */
@@ -88,11 +91,15 @@ export interface PackageSubmission {
 export async function submitPackage(deps: Deps, input: PackageSubmission): Promise<SkillPackage | null> {
   if (input.deliveredWishId && !(await deps.bitable.getWish(input.deliveredWishId))) return null;
 
+  // 先传文件再建行：上传失败就没有那一行，不会在目录里留一个点了下不来的包。
+  const attachmentToken = input.upload ? await deps.storage.upload(input.upload) : null;
+
   const pkg = await deps.bitable.createPackage({
     name: input.name,
     summary: input.summary,
     carrier: input.carrier,
     takeUrl: input.takeUrl,
+    attachmentToken,
     prerequisites: input.prerequisites,
     submitterNickname: input.submitterNickname,
     reviewStatus: "待审",
@@ -107,7 +114,10 @@ export async function submitPackage(deps: Deps, input: PackageSubmission): Promi
 }
 
 export interface TakeOutcome {
+  /** github 载体和填了直链的 zip 走这里。 */
   redirectTo: string | null;
+  /** 自助上传的 zip 走这里：文件不公开，出口用应用身份取回再转给访客。 */
+  attachmentToken: string | null;
   counted: boolean;
 }
 
@@ -124,8 +134,7 @@ export async function takePackage(
   const pkg = await deps.bitable.getPackage(id);
   if (!pkg || !isVisible(pkg)) return null;
 
-  if (!pkg.takeUrl) return null;
-  const destination = pkg.takeUrl;
+  if (!pkg.takeUrl && !pkg.attachmentToken) return null;
 
   let counted = false;
   if (!options.alreadyTaken) {
@@ -136,7 +145,7 @@ export async function takePackage(
       console.error("take count write failed", { packageId: id, error });
     }
   }
-  return { redirectTo: destination, counted };
+  return { redirectTo: pkg.takeUrl, attachmentToken: pkg.attachmentToken, counted };
 }
 
 export interface WishView extends Wish {
