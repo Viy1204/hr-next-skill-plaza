@@ -1,0 +1,28 @@
+[Unit]
+Description=HR NEXT 技能广场
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=plaza
+Group=plaza
+WorkingDirectory=/opt/hr-plaza/current
+EnvironmentFile=/etc/hr-plaza.env
+Environment=NODE_ENV=production
+Environment=PORT=80
+Environment=HOSTNAME=0.0.0.0
+ExecStart=/usr/bin/node server.js
+# 直接监听 80，省掉一层反代进程。装了域名和 Caddy 之后把 PORT 改回 3000 并删掉这行。
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+Restart=always
+RestartSec=3
+# 这台机器上还跑着别的服务，内存本来就紧。封顶后撑爆只重启本服务，不拖垮整机。
+MemoryMax=400M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
