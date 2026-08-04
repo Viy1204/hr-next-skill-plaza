@@ -26,10 +26,14 @@ export interface BitablePort {
   setWishEndorsementCount(wishId: string, count: number): Promise<void>;
   setWishStatus(wishId: string, status: Wish["status"]): Promise<void>;
 
-  findEndorsement(wishId: string, dedupeKey: string): Promise<{ id: string } | null>;
+  /** All endorsements of one wish. The row count is the source of truth for
+   *  附议数 — the denormalised counter on the wish row is derived from it. */
+  listEndorsements(wishId: string): Promise<{ id: string; dedupeKey: string }[]>;
   createEndorsement(wishId: string, dedupeKey: string): Promise<void>;
 
-  listClaims(wishId: string): Promise<Claim[]>;
+  /** All claims across all wishes. Callers group by wishId themselves — a
+   *  per-wish variant turns every wish-list render into N full table scans. */
+  listClaims(): Promise<Claim[]>;
   createClaim(input: { wishId: string; claimerNickname: string; note: string }): Promise<Claim>;
 
   getConfig(): Promise<Record<string, string>>;
@@ -44,7 +48,7 @@ export interface StoragePort {
   open(token: string): Promise<{ fileName: string; body: ReadableStream<Uint8Array> } | null>;
 }
 
-export type NotificationKind = "wish-created" | "wish-open-for-claim" | "wish-delivered";
+export type NotificationKind = "wish-created" | "wish-open-for-claim" | "wish-delivered" | "package-submitted";
 
 export interface Notification {
   kind: NotificationKind;
