@@ -193,10 +193,39 @@ export class FeishuBitable implements BitablePort {
     return (await this.listPackages()).find((p) => p.id === id) ?? null;
   }
 
+  async createPackage(input: Omit<SkillPackage, "id" | "takeCount">) {
+    const fields: Fields = {
+      名称: input.name,
+      简介: input.summary,
+      载体类型: input.carrier,
+      前置条件: input.prerequisites,
+      提报人昵称: input.submitterNickname,
+      审核状态: input.reviewStatus,
+      取得数: 0,
+    };
+    // 取得地址是 url 样式的文本列：读回来是 {text, link}，写进去也必须是这个形状，
+    // 给裸字符串会被拒（1254068 URLFieldConvFail）。
+    if (input.takeUrl) fields["取得地址"] = { text: input.takeUrl, link: input.takeUrl };
+    if (input.deliveredWishIds.length > 0) fields["交付的许愿"] = input.deliveredWishIds;
+    const { record } = await this.create(this.config.tables.packages, fields);
+    return this.toPackage(record);
+  }
+
   async incrementTakeCount(id: string) {
     const current = await this.getPackage(id);
     if (!current) return;
     await this.update(this.config.tables.packages, id, { 取得数: current.takeCount + 1 });
+  }
+
+  async createEntry(input: Omit<SkillEntry, "id">): Promise<SkillEntry> {
+    const { record } = await this.create(this.config.tables.entries, {
+      名称: input.name,
+      说明: input.description,
+      所属技能包: [input.packageId],
+      适用职能: input.hrFunction,
+      展示顺序: input.displayOrder,
+    });
+    return { ...input, id: record.record_id };
   }
 
   async listEntries(): Promise<SkillEntry[]> {

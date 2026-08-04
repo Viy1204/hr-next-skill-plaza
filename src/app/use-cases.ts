@@ -68,6 +68,44 @@ export async function getSkillPackage(deps: Deps, id: string): Promise<SkillPack
   return { ...pkg, entries, deliveredWishes: wishes.filter((w): w is Wish => w !== null) };
 }
 
+export interface PackageSubmission {
+  name: string;
+  summary: string;
+  carrier: SkillPackage["carrier"];
+  takeUrl: string;
+  prerequisites: string;
+  submitterNickname: string;
+  /** 作者声明这个技能包交付了哪条许愿；运营发布后同步才会认这条关联。 */
+  deliveredWishId: string | null;
+  entries: { name: string; description: string; hrFunction: HrFunction }[];
+}
+
+/**
+ * 自助上架。站点没有登录，任何人都能提交，所以一律落成「待审」—— 运营在多维表格里
+ * 改成「已发布」之前，它不出现在目录里，交付关联也不成立（syncDeliveries 只认已发布
+ * 的技能包）。这就是 ADR-0004 那道审核闸口的实现位置。
+ */
+export async function submitPackage(deps: Deps, input: PackageSubmission): Promise<SkillPackage | null> {
+  if (input.deliveredWishId && !(await deps.bitable.getWish(input.deliveredWishId))) return null;
+
+  const pkg = await deps.bitable.createPackage({
+    name: input.name,
+    summary: input.summary,
+    carrier: input.carrier,
+    takeUrl: input.takeUrl,
+    prerequisites: input.prerequisites,
+    submitterNickname: input.submitterNickname,
+    reviewStatus: "待审",
+    deliveredWishIds: input.deliveredWishId ? [input.deliveredWishId] : [],
+  });
+
+  // 顺序写：条目要挂到刚建出来的包上，而且展示顺序按提交顺序排。
+  for (const [index, entry] of input.entries.entries()) {
+    await deps.bitable.createEntry({ ...entry, packageId: pkg.id, displayOrder: index + 1 });
+  }
+  return pkg;
+}
+
 export interface TakeOutcome {
   redirectTo: string | null;
   counted: boolean;

@@ -8,9 +8,11 @@ import type { Claim, HrFunction, SkillEntry, SkillPackage, Wish } from "@/domain
 export interface BitablePort {
   listPackages(): Promise<SkillPackage[]>;
   getPackage(id: string): Promise<SkillPackage | null>;
+  createPackage(input: Omit<SkillPackage, "id" | "takeCount">): Promise<SkillPackage>;
   incrementTakeCount(id: string): Promise<void>;
 
   listEntries(): Promise<SkillEntry[]>;
+  createEntry(input: Omit<SkillEntry, "id">): Promise<SkillEntry>;
 
   listWishes(): Promise<Wish[]>;
   getWish(id: string): Promise<Wish | null>;

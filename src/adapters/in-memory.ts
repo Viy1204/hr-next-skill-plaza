@@ -87,6 +87,13 @@ export class InMemoryBitable implements BitablePort {
     return found ? { ...found } : null;
   }
 
+  async createPackage(input: Omit<SkillPackage, "id" | "takeCount">) {
+    this.guardWrite();
+    const pkg = this.fillPackage(input);
+    this.packages.push(pkg);
+    return { ...pkg };
+  }
+
   async incrementTakeCount(id: string) {
     this.guardWrite();
     const found = this.packages.find((p) => p.id === id);
@@ -95,6 +102,13 @@ export class InMemoryBitable implements BitablePort {
 
   async listEntries() {
     return this.entries.map((e) => ({ ...e }));
+  }
+
+  async createEntry(input: Omit<SkillEntry, "id">) {
+    this.guardWrite();
+    const entry = this.fillEntry(input);
+    this.entries.push(entry);
+    return { ...entry };
   }
 
   async listWishes() {
@@ -154,6 +168,12 @@ export class InMemoryBitable implements BitablePort {
 
   async getConfig() {
     return { ...this.config };
+  }
+
+  /** What an operator does in the Bitable when they publish or delist a package. */
+  setReviewStatus(packageId: string, status: SkillPackage["reviewStatus"]) {
+    const pkg = this.packages.find((p) => p.id === packageId);
+    if (pkg) pkg.reviewStatus = status;
   }
 
   /** Link a package to a wish, i.e. deliver it. */
