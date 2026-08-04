@@ -23,6 +23,12 @@ export default async function SkillsPage({
       <h1>技能目录</h1>
       <p className="lede">按所属技能包的取得数排序。取得数只代表有人想试。</p>
 
+      <p>
+        <Link className="btn ghost" href="/skills/new">
+          上架技能包
+        </Link>
+      </p>
+
       <form className="search" action="/skills">
         {hrFunction ? <input type="hidden" name="f" value={hrFunction} /> : null}
         <input name="q" defaultValue={q ?? ""} placeholder="搜技能条目名称或说明，例如「花名册」" />

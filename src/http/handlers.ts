@@ -1,6 +1,6 @@
 import { HR_FUNCTIONS, type HrFunction } from "@/domain/types";
 import type { Deps } from "@/app/use-cases";
-import { claimWish, createWish, endorseWish, syncDeliveries, takePackage } from "@/app/use-cases";
+import { claimWish, createWish, endorseWish, submitPackage, syncDeliveries, takePackage } from "@/app/use-cases";
 
 // Route handlers are plain (Request, Deps) => Response functions so tests can
 // enter the system at the HTTP boundary without booting Next.js. The files under
@@ -104,6 +104,57 @@ export async function handleCreateWish(request: Request, deps: Deps) {
     wisherNickname: typeof wisherNickname === "string" ? wisherNickname.trim() : "",
   });
   return Response.json({ id: wish.id }, { status: 201 });
+}
+
+const MAX_ENTRIES = 12;
+
+function isHttpUrl(value: string) {
+  return /^https?:\/\/\S+$/.test(value);
+}
+
+export async function handleSubmitPackage(request: Request, deps: Deps) {
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== "object") return badRequest("invalid body");
+
+  const { name, summary, carrier, takeUrl, prerequisites, submitterNickname, deliveredWishId, entries } =
+    body as Record<string, unknown>;
+
+  const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+  if (!text(name)) return badRequest("name is required");
+  if (!text(summary)) return badRequest("summary is required");
+  if (carrier !== "github" && carrier !== "zip") return badRequest("carrier must be github or zip");
+  if (!isHttpUrl(text(takeUrl))) return badRequest("takeUrl must be an http(s) url");
+  // 前置条件是目录的必填字段：取回去装不上，绝大多数是这一栏没写清楚。
+  if (!text(prerequisites)) return badRequest("prerequisites is required");
+
+  if (!Array.isArray(entries) || entries.length === 0) return badRequest("at least one entry is required");
+  if (entries.length > MAX_ENTRIES) return badRequest(`at most ${MAX_ENTRIES} entries`);
+
+  const parsed = [];
+  for (const raw of entries) {
+    const entry = (raw ?? {}) as Record<string, unknown>;
+    if (!text(entry.name)) return badRequest("entry name is required");
+    if (!text(entry.description)) return badRequest("entry description is required");
+    if (!isHrFunction(entry.hrFunction)) return badRequest("entry hrFunction is not a known HR function");
+    parsed.push({
+      name: text(entry.name),
+      description: text(entry.description),
+      hrFunction: entry.hrFunction,
+    });
+  }
+
+  const pkg = await submitPackage(deps, {
+    name: text(name),
+    summary: text(summary),
+    carrier,
+    takeUrl: text(takeUrl),
+    prerequisites: text(prerequisites),
+    submitterNickname: text(submitterNickname),
+    deliveredWishId: text(deliveredWishId) || null,
+    entries: parsed,
+  });
+  if (!pkg) return badRequest("deliveredWishId does not match a wish");
+  return Response.json({ id: pkg.id, reviewStatus: pkg.reviewStatus }, { status: 201 });
 }
 
 export async function handleEndorse(request: Request, deps: Deps, wishId: string) {
