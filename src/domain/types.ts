@@ -25,7 +25,10 @@ export type HrFunction = (typeof HR_FUNCTIONS)[number];
 
 export type Carrier = "github" | "zip";
 
-export type ReviewStatus = "待审" | "已发布" | "已下架";
+// 已拒绝 exists so the pending queue only ever holds "not yet looked at".
+// Rejected submissions parked as 待审 pile up and become indistinguishable
+// from fresh ones; only 已发布 is ever publicly visible either way.
+export type ReviewStatus = "待审" | "已发布" | "已下架" | "已拒绝";
 
 export type WishStatus = "收集中" | "待认领" | "已交付";
 

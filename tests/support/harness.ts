@@ -1,5 +1,6 @@
 import { InMemoryBitable, InMemoryNotifier, InMemoryStorage, type Seed } from "@/adapters/in-memory";
 import type { Deps } from "@/app/use-cases";
+import { resetRateLimiters } from "@/http/handlers";
 
 // The one and only way to build a test environment. Every test uses this — do
 // not stand up ports by hand in a test file. The two in-memory ports are the
@@ -8,6 +9,9 @@ import type { Deps } from "@/app/use-cases";
 export const BASE_URL = "https://plaza.test";
 
 export function harness(seed: Seed = {}) {
+  // The per-IP limiters are module state and every test posts from the same
+  // "local" key — without this reset they'd trip on unrelated earlier tests.
+  resetRateLimiters();
   const bitable = new InMemoryBitable(seed);
   const notifier = new InMemoryNotifier();
   const storage = new InMemoryStorage();

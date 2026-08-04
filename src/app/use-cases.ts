@@ -1,5 +1,5 @@
-import { deriveWishStatus, type HrFunction, type SkillEntry, type SkillPackage, type Wish } from "@/domain/types";
-import type { BitablePort, NotifierPort, StoragePort } from "@/ports";
+import { deriveWishStatus, type Claim, type HrFunction, type SkillEntry, type SkillPackage, type Wish } from "@/domain/types";
+import type { BitablePort, Notification, NotifierPort, StoragePort } from "@/ports";
 
 export interface Deps {
   bitable: BitablePort;
@@ -11,10 +11,32 @@ export interface Deps {
 const THRESHOLD_KEY = "附议升级阈值";
 const DEFAULT_THRESHOLD = 10;
 
-async function threshold(bitable: BitablePort): Promise<number> {
-  const raw = (await bitable.getConfig())[THRESHOLD_KEY];
+function parseThreshold(raw: string | undefined): number {
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_THRESHOLD;
+}
+
+async function threshold(bitable: BitablePort): Promise<number> {
+  return parseThreshold((await bitable.getConfig())[THRESHOLD_KEY]);
+}
+
+/**
+ * Group pushes are best-effort, same contract as the take counter: a dead or
+ * keyword-rejecting webhook must never fail the write that preceded it — the
+ * record is already in the table, and a 500 here makes the visitor retry and
+ * duplicate it. Callers that keep an announce-once marker (the stored wish
+ * status) must check the returned boolean and only advance the marker on a
+ * successful send; otherwise a failed push is lost forever, because nothing
+ * ever crosses that threshold again.
+ */
+async function notify(notifier: NotifierPort, notification: Notification): Promise<boolean> {
+  try {
+    await notifier.send(notification);
+    return true;
+  } catch (error) {
+    console.error("group push failed", { kind: notification.kind, error });
+    return false;
+  }
 }
 
 function render(template: string | undefined, fallback: string, vars: Record<string, string | number>) {
@@ -110,6 +132,18 @@ export async function submitPackage(deps: Deps, input: PackageSubmission): Promi
   for (const [index, entry] of input.entries.entries()) {
     await deps.bitable.createEntry({ ...entry, packageId: pkg.id, displayOrder: index + 1 });
   }
+
+  // 提交即推群：既是给运营的到货铃（待审队列没有别的通知渠道），也是作者的
+  // 公开署名 —— 取得数不作激励，群里露名是唯一的供给侧激励。
+  const config = await deps.bitable.getConfig();
+  await notify(deps.notifier, {
+    kind: "package-submitted",
+    text: render(
+      config["推送文案-新技能包待审"],
+      "📦 新技能包已提交待审：{名称}（by {提报人昵称}）\n运营核对前置条件与取得地址后上架",
+      { 名称: pkg.name, 提报人昵称: input.submitterNickname || "匿名" },
+    ),
+  });
   return pkg;
 }
 
@@ -153,8 +187,10 @@ export interface WishView extends Wish {
   deliveredByPackageIds: string[];
 }
 
-async function decorateWish(deps: Deps, wish: Wish, packages: SkillPackage[], limit: number): Promise<WishView> {
-  const claims = await deps.bitable.listClaims(wish.id);
+// Claims arrive as one full list, fetched once per request — a per-wish fetch
+// here turns every wish-list render into N table scans, which is exactly the
+// burst that hits Bitable's rate limit the moment a link lands in the group.
+function decorateWish(wish: Wish, packages: SkillPackage[], claims: Claim[], limit: number): WishView {
   const deliveredBy = packages.filter((p) => isVisible(p) && p.deliveredWishIds.includes(wish.id)).map((p) => p.id);
   return {
     ...wish,
@@ -163,27 +199,33 @@ async function decorateWish(deps: Deps, wish: Wish, packages: SkillPackage[], li
       endorsementCount: wish.endorsementCount,
       threshold: limit,
     }),
-    claimerNicknames: claims.map((c) => c.claimerNickname),
+    claimerNicknames: claims.filter((c) => c.wishId === wish.id).map((c) => c.claimerNickname),
     deliveredByPackageIds: deliveredBy,
   };
 }
 
 export async function listWishes(deps: Deps, filter: { hrFunction?: HrFunction } = {}): Promise<WishView[]> {
-  const [wishes, packages, limit] = await Promise.all([
+  const [wishes, packages, claims, limit] = await Promise.all([
     deps.bitable.listWishes(),
     deps.bitable.listPackages(),
+    deps.bitable.listClaims(),
     threshold(deps.bitable),
   ]);
   const filtered = filter.hrFunction ? wishes.filter((w) => w.hrFunction === filter.hrFunction) : wishes;
-  const decorated = await Promise.all(filtered.map((w) => decorateWish(deps, w, packages, limit)));
-  return decorated.sort((a, b) => b.endorsementCount - a.endorsementCount);
+  return filtered
+    .map((w) => decorateWish(w, packages, claims, limit))
+    .sort((a, b) => b.endorsementCount - a.endorsementCount);
 }
 
 export async function getWish(deps: Deps, id: string): Promise<WishView | null> {
   const wish = await deps.bitable.getWish(id);
   if (!wish) return null;
-  const [packages, limit] = await Promise.all([deps.bitable.listPackages(), threshold(deps.bitable)]);
-  return decorateWish(deps, wish, packages, limit);
+  const [packages, claims, limit] = await Promise.all([
+    deps.bitable.listPackages(),
+    deps.bitable.listClaims(),
+    threshold(deps.bitable),
+  ]);
+  return decorateWish(wish, packages, claims, limit);
 }
 
 export async function createWish(
@@ -198,7 +240,7 @@ export async function createWish(
 ): Promise<Wish> {
   const wish = await deps.bitable.createWish(input);
   const config = await deps.bitable.getConfig();
-  await deps.notifier.send({
+  await notify(deps.notifier, {
     kind: "wish-created",
     text: render(config["推送文案-新许愿"], "🕯 新许愿：{标题}\n{适用职能} · 由 {许愿人昵称} 提出\n{链接}", {
       标题: wish.title,
@@ -220,20 +262,25 @@ export async function endorseWish(deps: Deps, wishId: string, dedupeKey: string)
   const wish = await deps.bitable.getWish(wishId);
   if (!wish) return null;
 
-  const existing = await deps.bitable.findEndorsement(wishId, dedupeKey);
-  if (existing) return { endorsementCount: wish.endorsementCount, upgraded: false };
+  // 附议数以附议表的行数为准：两个并发附议各自 read-modify-write 存储的计数会
+  // 互相覆盖，按行数写回则每次都自愈到真值。
+  const existing = await deps.bitable.listEndorsements(wishId);
+  if (existing.some((e) => e.dedupeKey === dedupeKey)) {
+    return { endorsementCount: existing.length, upgraded: false };
+  }
 
   await deps.bitable.createEndorsement(wishId, dedupeKey);
-  const count = wish.endorsementCount + 1;
+  const count = existing.length + 1;
   await deps.bitable.setWishEndorsementCount(wishId, count);
 
   const limit = await threshold(deps.bitable);
-  const crossed = wish.endorsementCount < limit && count >= limit;
+  const crossed = existing.length < limit && count >= limit;
   if (!crossed || wish.status === "已交付") return { endorsementCount: count, upgraded: false };
 
-  await deps.bitable.setWishStatus(wishId, "待认领");
+  // 先推送、成功才落状态：状态是「已通知过」的标记，推送失败时留在收集中，
+  // 交给定时对账（syncDeliveries）重试 —— 否则这条招人推送永久丢失。
   const config = await deps.bitable.getConfig();
-  await deps.notifier.send({
+  const sent = await notify(deps.notifier, {
     kind: "wish-open-for-claim",
     text: render(config["推送文案-开放认领"], "📣 已有 {附议数} 人有同一个痛点：{标题}\n现在开放认领：{链接}", {
       附议数: count,
@@ -241,6 +288,7 @@ export async function endorseWish(deps: Deps, wishId: string, dedupeKey: string)
       链接: `${deps.baseUrl}/wishes/${wishId}`,
     }),
   });
+  if (sent) await deps.bitable.setWishStatus(wishId, "待认领");
   return { endorsementCount: count, upgraded: true };
 }
 
@@ -256,33 +304,62 @@ export async function claimWish(
 }
 
 /**
- * Delivery happens outside the app: an operator links a package to a wish in the
- * Bitable. Nothing in a request path can notice that, so this reconciles the
- * derived status and fires the one-off group message. Safe to run repeatedly.
+ * Reconciles everything that changes in the Bitable outside a request path, and
+ * fires the matching one-off group message. Two cases:
+ *
+ * 1. Delivery: an operator linked a package to a wish.
+ * 2. Threshold upgrades the endorse flow can no longer trigger: when the
+ *    operator lowers 附议升级阈值, wishes already sitting between the new and
+ *    old value never see another "crossing" endorsement — without this pass
+ *    their recruitment push silently never happens while the page shows 待认领.
+ *
+ * The stored status is the announce-once marker, advanced only after the push
+ * went out: a failed push leaves the status behind and this job retries it next
+ * run. Safe to run repeatedly; a duplicate message needs the rarer failure of
+ * the status write after a successful send.
  */
-export async function syncDeliveries(deps: Deps): Promise<string[]> {
+export async function syncDeliveries(deps: Deps): Promise<{ delivered: string[]; opened: string[] }> {
   const [wishes, packages, config] = await Promise.all([
     deps.bitable.listWishes(),
     deps.bitable.listPackages(),
     deps.bitable.getConfig(),
   ]);
-  const announced: string[] = [];
+  const limit = parseThreshold(config[THRESHOLD_KEY]);
+  const delivered: string[] = [];
+  const opened: string[] = [];
 
   for (const wish of wishes) {
     if (wish.status === "已交付") continue;
-    const pkg = packages.find((p) => isVisible(p) && p.deliveredWishIds.includes(wish.id));
-    if (!pkg) continue;
 
-    await deps.bitable.setWishStatus(wish.id, "已交付");
-    await deps.notifier.send({
-      kind: "wish-delivered",
-      text: render(config["推送文案-已交付"], "✅ 许愿已交付：{标题}\n交付技能包：{技能包名称}\n{链接}", {
-        标题: wish.title,
-        技能包名称: pkg.name,
-        链接: `${deps.baseUrl}/skills/${pkg.id}`,
-      }),
-    });
-    announced.push(wish.id);
+    const pkg = packages.find((p) => isVisible(p) && p.deliveredWishIds.includes(wish.id));
+    if (pkg) {
+      const sent = await notify(deps.notifier, {
+        kind: "wish-delivered",
+        text: render(config["推送文案-已交付"], "✅ 许愿已交付：{标题}\n交付技能包：{技能包名称}\n{链接}", {
+          标题: wish.title,
+          技能包名称: pkg.name,
+          链接: `${deps.baseUrl}/skills/${pkg.id}`,
+        }),
+      });
+      if (!sent) continue;
+      await deps.bitable.setWishStatus(wish.id, "已交付");
+      delivered.push(wish.id);
+      continue;
+    }
+
+    if (wish.status === "收集中" && wish.endorsementCount >= limit) {
+      const sent = await notify(deps.notifier, {
+        kind: "wish-open-for-claim",
+        text: render(config["推送文案-开放认领"], "📣 已有 {附议数} 人有同一个痛点：{标题}\n现在开放认领：{链接}", {
+          附议数: wish.endorsementCount,
+          标题: wish.title,
+          链接: `${deps.baseUrl}/wishes/${wish.id}`,
+        }),
+      });
+      if (!sent) continue;
+      await deps.bitable.setWishStatus(wish.id, "待认领");
+      opened.push(wish.id);
+    }
   }
-  return announced;
+  return { delivered, opened };
 }

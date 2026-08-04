@@ -13,12 +13,21 @@ interface EntryDraft {
 const EMPTY_ENTRY: EntryDraft = { name: "", description: "", hrFunction: "" };
 const MAX_ENTRIES = 12;
 
-/** 后端的校验消息是给开发看的英文，这里翻成填表人能照着改的话。 */
-function messageFor(error: string | undefined) {
-  if (error?.includes("larger than 20MB")) return "文件超过 20MB，太大了。放 GitHub 或者给个直链吧。";
-  if (error?.includes("must be a .zip") || error?.includes("not a zip archive")) return "只收 .zip 文件。";
-  if (error?.includes("takeUrl")) return "要么上传一个 zip，要么填一个 http(s) 开头的地址。";
-  return "提交失败：名称、简介、前置条件都要填，且至少要有一个技能条目。";
+/** 后端返回稳定的错误 code，这里按 code 翻成填表人能照着改的话 —— 匹配英文
+ *  message 文本的老做法在后端改一个词时就会静默失配。 */
+function messageFor(code: string | undefined) {
+  switch (code) {
+    case "file-too-large":
+      return "文件超过 20MB，太大了。放 GitHub 或者给个直链吧。";
+    case "file-not-zip":
+      return "只收 .zip 文件。";
+    case "take-url-invalid":
+      return "要么上传一个 zip，要么填一个 http(s) 开头的地址。";
+    case "rate-limited":
+      return "提交太频繁了，过一会儿再试。";
+    default:
+      return "提交失败：名称、简介、前置条件都要填，且至少要有一个技能条目。";
+  }
 }
 
 export default function SubmitPackageForm({ wishes }: { wishes: { id: string; title: string }[] }) {
@@ -42,8 +51,8 @@ export default function SubmitPackageForm({ wishes }: { wishes: { id: string; ti
     const response = await fetch("/api/packages", { method: "POST", body: form });
     setPending(false);
     if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as { error?: string } | null;
-      setError(messageFor(body?.error));
+      const body = (await response.json().catch(() => null)) as { code?: string } | null;
+      setError(messageFor(body?.code));
       return;
     }
     setSubmitted(true);
