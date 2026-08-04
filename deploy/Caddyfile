@@ -8,6 +8,11 @@
 }
 
 viy1204.me {
+	# 应用侧的 20MB 上限在整个 body 读进内存之后才检查得到，而进程被
+	# MemoryMax=400M 封顶 —— 超大请求必须在这里就掐断，别让 Node 见到它。
+	request_body {
+		max_size 25MB
+	}
 	reverse_proxy 127.0.0.1:3000
 	encode gzip
 	log {

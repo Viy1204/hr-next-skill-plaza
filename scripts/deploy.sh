@@ -55,4 +55,6 @@ ssh "$HOST" "set -e
 
 echo "==> verify"
 sleep 3
-ssh "$HOST" 'systemctl is-active hr-plaza; curl -s -o /dev/null -w "    / %{http_code}\n" http://127.0.0.1/'
+# 打 :3000 而不是 :80 —— 80 是 Caddy，Host 又对不上任何站点，只能证明 Caddy 活着，
+# 证明不了刚部署的应用能出页面。
+ssh "$HOST" 'systemctl is-active hr-plaza; curl -s -o /dev/null -w "    / %{http_code}\n" http://127.0.0.1:3000/'
