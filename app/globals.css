@@ -37,7 +37,9 @@ body {
   margin: 0;
   background: var(--canvas);
   color: var(--ink);
-  font: 300 15px/1.5 -apple-system, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+  /* 正文 400：Windows 下没有 PingFang，中文落到微软雅黑，300 在 1x 屏上发虚。
+     细体只留给 ≥24px 的标题和大数字，那个字号撑得住。 */
+  font: 400 15px/1.5 -apple-system, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;
   /* 必须 html 和 body 都设 —— 只设根元素时 Chrome 仍允许横向拖动那几像素。 */
   overflow-x: clip;
@@ -123,13 +125,15 @@ header.top nav {
   gap: 16px;
 }
 
-header.top nav > a {
+/* :not(.btn) 是必须的 —— 这条选择器比 .btn 更具体，不排除按钮的话「我要许愿」
+   会变成紫底灰字（对比度 1.9:1，实测看不清）。 */
+header.top nav > a:not(.btn) {
   font-size: 14px;
   color: var(--ink-mute);
   white-space: nowrap;
 }
 
-header.top nav > a:hover {
+header.top nav > a:not(.btn):hover {
   color: var(--ink);
   text-decoration: none;
 }
@@ -428,7 +432,7 @@ p.lede {
 .card h3 {
   margin: 0 0 8px;
   font-size: 17px;
-  font-weight: 300;
+  font-weight: 400;
   line-height: 1.4;
 }
 
@@ -588,7 +592,6 @@ label {
 
 label .hint {
   display: block;
-  font-weight: 300;
   color: var(--ink-mute);
   font-size: 13px;
   margin-top: 2px;
@@ -603,7 +606,7 @@ textarea {
   padding: 10px 12px;
   font-family: inherit;
   font-size: 15px;
-  font-weight: 300;
+  font-weight: 400;
   color: var(--ink);
   background: var(--canvas);
   min-height: 42px;

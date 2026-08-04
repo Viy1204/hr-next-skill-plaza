@@ -25,7 +25,10 @@ export type HrFunction = (typeof HR_FUNCTIONS)[number];
 
 export type Carrier = "github" | "zip";
 
-export type ReviewStatus = "待审" | "已发布" | "已下架";
+// 已拒绝 exists so the pending queue only ever holds "not yet looked at".
+// Rejected submissions parked as 待审 pile up and become indistinguishable
+// from fresh ones; only 已发布 is ever publicly visible either way.
+export type ReviewStatus = "待审" | "已发布" | "已下架" | "已拒绝";
 
 export type WishStatus = "收集中" | "待认领" | "已交付";
 
@@ -37,6 +40,9 @@ export interface SkillPackage {
   /** Repo URL for the github carrier, file URL for zip. Never shown raw — the
    *  page only ever links to the /get outlet so the take gets counted. */
   takeUrl: string | null;
+  /** zip 载体走自助上传时，文件存在飞书云空间，这里只记文件标识。文件不公开，
+   *  取得时由 /get 出口用应用身份取回再转给访客 —— 待审的包因此下载不到。 */
+  attachmentToken: string | null;
   prerequisites: string;
   submitterNickname: string;
   reviewStatus: ReviewStatus;

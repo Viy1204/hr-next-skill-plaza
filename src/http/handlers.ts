@@ -1,6 +1,7 @@
 import { HR_FUNCTIONS, type HrFunction } from "@/domain/types";
 import type { Deps } from "@/app/use-cases";
-import { claimWish, createWish, endorseWish, syncDeliveries, takePackage } from "@/app/use-cases";
+import { claimWish, createWish, endorseWish, submitPackage, syncDeliveries, takePackage } from "@/app/use-cases";
+import { RateLimiter } from "./rate-limit";
 
 // Route handlers are plain (Request, Deps) => Response functions so tests can
 // enter the system at the HTTP boundary without booting Next.js. The files under
@@ -68,11 +69,27 @@ export async function handleTake(request: Request, deps: Deps, packageId: string
   for (const [id, at] of taken) if (now - at > windowMs) taken.delete(id);
 
   const outcome = await takePackage(deps, packageId, { alreadyTaken: taken.has(packageId) });
-  if (!outcome?.redirectTo) return new Response("Not found", { status: 404 });
+  if (!outcome) return new Response("Not found", { status: 404 });
 
   taken.set(packageId, now);
-  const headers = new Headers({ Location: outcome.redirectTo });
-  headers.append("Set-Cookie", cookie(TAKEN_COOKIE, serialiseTaken(taken), Math.ceil(windowMs / 1000)));
+  const takenCookie = cookie(TAKEN_COOKIE, serialiseTaken(taken), Math.ceil(windowMs / 1000));
+
+  if (outcome.attachmentToken) {
+    // 自助上传的 zip：文件在云空间里不公开，出口用应用身份取回来直接转给访客。
+    // 流式转发，不在内存里攒整个文件 —— 部署机内存本来就紧。
+    const file = await deps.storage.open(outcome.attachmentToken);
+    if (!file) return new Response("Not found", { status: 404 });
+    return new Response(file.body, {
+      headers: new Headers({
+        "content-type": "application/zip",
+        "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
+        "set-cookie": takenCookie,
+      }),
+    });
+  }
+
+  const headers = new Headers({ Location: outcome.redirectTo! });
+  headers.append("Set-Cookie", takenCookie);
   return new Response(null, { status: 302, headers });
 }
 
@@ -80,21 +97,46 @@ function isHrFunction(value: unknown): value is HrFunction {
   return typeof value === "string" && (HR_FUNCTIONS as readonly string[]).includes(value);
 }
 
-function badRequest(message: string) {
-  return Response.json({ error: message }, { status: 400 });
+/** `code` is the machine-readable contract the form relies on for its Chinese
+ *  copy — match on it, never on the English message text. */
+function badRequest(message: string, code: string) {
+  return Response.json({ error: message, code }, { status: 400 });
 }
 
-export async function handleCreateWish(request: Request, deps: Deps) {
+// 两个无鉴权的写入口都会向外放大：许愿变群推送，技能包变云空间文件 + 待审队列。
+// 额度按「正常人一小时不可能超过」拍的，拦脚本不拦人。
+const wishLimiter = new RateLimiter(10);
+const packageLimiter = new RateLimiter(5);
+
+export function resetRateLimiters() {
+  wishLimiter.reset();
+  packageLimiter.reset();
+}
+
+function clientKey(request: Request) {
+  // Caddy 反代自动带 X-Forwarded-For；本地直连时统一记在一个键下。
+  return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+}
+
+function tooManyRequests() {
+  return Response.json({ error: "too many requests from this address", code: "rate-limited" }, { status: 429 });
+}
+
+export async function handleCreateWish(request: Request, deps: Deps, now = Date.now()) {
+  if (!wishLimiter.allow(clientKey(request), now)) return tooManyRequests();
+
   const body = await request.json().catch(() => null);
-  if (!body || typeof body !== "object") return badRequest("invalid body");
+  if (!body || typeof body !== "object") return badRequest("invalid body", "invalid-body");
 
   const { title, painScenario, hrFunction, painHours, wisherNickname } = body as Record<string, unknown>;
-  if (typeof title !== "string" || !title.trim()) return badRequest("title is required");
-  if (typeof painScenario !== "string" || !painScenario.trim()) return badRequest("painScenario is required");
-  if (!isHrFunction(hrFunction)) return badRequest("hrFunction is not a known HR function");
+  if (typeof title !== "string" || !title.trim()) return badRequest("title is required", "title-required");
+  if (typeof painScenario !== "string" || !painScenario.trim()) {
+    return badRequest("painScenario is required", "pain-scenario-required");
+  }
+  if (!isHrFunction(hrFunction)) return badRequest("hrFunction is not a known HR function", "hr-function-unknown");
 
   const hours = painHours === null || painHours === undefined || painHours === "" ? null : Number(painHours);
-  if (hours !== null && !Number.isFinite(hours)) return badRequest("painHours must be a number");
+  if (hours !== null && !Number.isFinite(hours)) return badRequest("painHours must be a number", "pain-hours-invalid");
 
   const wish = await createWish(deps, {
     title: title.trim(),
@@ -104,6 +146,97 @@ export async function handleCreateWish(request: Request, deps: Deps) {
     wisherNickname: typeof wisherNickname === "string" ? wisherNickname.trim() : "",
   });
   return Response.json({ id: wish.id }, { status: 201 });
+}
+
+const MAX_ENTRIES = 12;
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+
+function isHttpUrl(value: string) {
+  return /^https?:\/\/\S+$/.test(value);
+}
+
+/** 表单带文件时是 multipart，纯链接提交仍走 JSON。entries 在 multipart 里是一段 JSON 文本。 */
+async function readSubmission(request: Request): Promise<{ body: Record<string, unknown>; file: File | null } | null> {
+  if (!request.headers.get("content-type")?.includes("multipart/form-data")) {
+    const body = await request.json().catch(() => null);
+    return body && typeof body === "object" ? { body: body as Record<string, unknown>, file: null } : null;
+  }
+
+  const form = await request.formData().catch(() => null);
+  if (!form) return null;
+  const body: Record<string, unknown> = {};
+  for (const [key, value] of form.entries()) if (typeof value === "string") body[key] = value;
+  if (typeof body.entries === "string") {
+    const parsed = JSON.parse(body.entries as string) as unknown;
+    body.entries = parsed;
+  }
+  const file = form.get("file");
+  return { body, file: file instanceof File && file.size > 0 ? file : null };
+}
+
+export async function handleSubmitPackage(request: Request, deps: Deps, now = Date.now()) {
+  if (!packageLimiter.allow(clientKey(request), now)) return tooManyRequests();
+
+  const submission = await readSubmission(request).catch(() => null);
+  if (!submission) return badRequest("invalid body", "invalid-body");
+  const { body, file } = submission;
+
+  const { name, summary, carrier, takeUrl, prerequisites, submitterNickname, deliveredWishId, entries } = body;
+
+  const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+  if (!text(name)) return badRequest("name is required", "name-required");
+  if (!text(summary)) return badRequest("summary is required", "summary-required");
+  if (carrier !== "github" && carrier !== "zip") return badRequest("carrier must be github or zip", "carrier-invalid");
+
+  // 上传的文件与取得地址二选一，zip 载体才允许上传。
+  if (file && carrier !== "zip") return badRequest("only the zip carrier takes an uploaded file", "file-not-allowed");
+  if (!file && !isHttpUrl(text(takeUrl))) return badRequest("takeUrl must be an http(s) url", "take-url-invalid");
+
+  let upload: { fileName: string; bytes: Uint8Array } | null = null;
+  if (file) {
+    if (file.size > MAX_UPLOAD_BYTES) return badRequest("uploaded file is larger than 20MB", "file-too-large");
+    if (!file.name.toLowerCase().endsWith(".zip")) return badRequest("uploaded file must be a .zip", "file-not-zip");
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    // 只看扩展名不够：这个出口会把文件原样发给别人，至少确认它真是个 zip。
+    if (bytes[0] !== 0x50 || bytes[1] !== 0x4b) return badRequest("uploaded file is not a zip archive", "file-not-zip");
+    upload = { fileName: file.name, bytes };
+  }
+  // 前置条件是目录的必填字段：取回去装不上，绝大多数是这一栏没写清楚。
+  if (!text(prerequisites)) return badRequest("prerequisites is required", "prerequisites-required");
+
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return badRequest("at least one entry is required", "entries-required");
+  }
+  if (entries.length > MAX_ENTRIES) return badRequest(`at most ${MAX_ENTRIES} entries`, "too-many-entries");
+
+  const parsed = [];
+  for (const raw of entries) {
+    const entry = (raw ?? {}) as Record<string, unknown>;
+    if (!text(entry.name)) return badRequest("entry name is required", "entry-name-required");
+    if (!text(entry.description)) return badRequest("entry description is required", "entry-description-required");
+    if (!isHrFunction(entry.hrFunction)) {
+      return badRequest("entry hrFunction is not a known HR function", "entry-hr-function-unknown");
+    }
+    parsed.push({
+      name: text(entry.name),
+      description: text(entry.description),
+      hrFunction: entry.hrFunction,
+    });
+  }
+
+  const pkg = await submitPackage(deps, {
+    name: text(name),
+    summary: text(summary),
+    carrier,
+    takeUrl: text(takeUrl),
+    upload,
+    prerequisites: text(prerequisites),
+    submitterNickname: text(submitterNickname),
+    deliveredWishId: text(deliveredWishId) || null,
+    entries: parsed,
+  });
+  if (!pkg) return badRequest("deliveredWishId does not match a wish", "delivered-wish-not-found");
+  return Response.json({ id: pkg.id, reviewStatus: pkg.reviewStatus }, { status: 201 });
 }
 
 export async function handleEndorse(request: Request, deps: Deps, wishId: string) {
@@ -119,7 +252,9 @@ export async function handleEndorse(request: Request, deps: Deps, wishId: string
 export async function handleClaim(request: Request, deps: Deps, wishId: string) {
   const body = await request.json().catch(() => null);
   const nickname = (body as { claimerNickname?: unknown } | null)?.claimerNickname;
-  if (typeof nickname !== "string" || !nickname.trim()) return badRequest("claimerNickname is required");
+  if (typeof nickname !== "string" || !nickname.trim()) {
+    return badRequest("claimerNickname is required", "claimer-nickname-required");
+  }
 
   const note = (body as { note?: unknown }).note;
   const claim = await claimWish(deps, wishId, {
@@ -134,6 +269,5 @@ export async function handleSyncDeliveries(request: Request, deps: Deps, secret:
   if (!secret || request.headers.get("x-sync-secret") !== secret) {
     return new Response("Forbidden", { status: 403 });
   }
-  const announced = await syncDeliveries(deps);
-  return Response.json({ announced });
+  return Response.json(await syncDeliveries(deps));
 }

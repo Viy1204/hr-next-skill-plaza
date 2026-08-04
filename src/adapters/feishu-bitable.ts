@@ -1,4 +1,5 @@
 import type { BitablePort } from "@/ports";
+import { TenantToken } from "./tenant-token";
 import { HR_FUNCTIONS, type Carrier, type Claim, type HrFunction, type ReviewStatus, type SkillEntry, type SkillPackage, type Wish, type WishStatus } from "@/domain/types";
 
 // The real Feishu Bitable port. Everything Feishu-shaped — tokens, wire format,
@@ -26,9 +27,11 @@ interface Row {
   fields: Fields;
 }
 
-/** Bitable returns plain strings for plain text but {text, link} for url-styled text. */
-function asText(value: unknown): string {
+/** Bitable returns plain strings for plain text but {text, link} for url-styled
+ *  text, and bare numbers for number/created-time cells. */
+export function asText(value: unknown): string {
   if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
   if (Array.isArray(value)) return value.map(asText).join("");
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
@@ -36,6 +39,24 @@ function asText(value: unknown): string {
     if (typeof record.text === "string") return record.text;
   }
   return "";
+}
+
+/** 创建时间 cells come back as epoch milliseconds. Render them as a readable
+ *  Asia/Shanghai timestamp — passing the raw number through asText produced an
+ *  empty string and the field silently rendered blank. */
+export function asDateText(value: unknown): string {
+  if (typeof value !== "number") return asText(value);
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  })
+    .format(value)
+    .replace(/\//g, "-");
 }
 
 /**
@@ -61,48 +82,105 @@ function asNumber(value: unknown): number | null {
 
 function asHrFunction(value: unknown): HrFunction {
   const text = asText(value);
-  return (HR_FUNCTIONS as readonly string[]).includes(text) ? (text as HrFunction) : "HR 运营与共享服务";
+  if ((HR_FUNCTIONS as readonly string[]).includes(text)) return text as HrFunction;
+  // 职能集合是代码写死的：表里冒出新选项（运营手册明令禁止但拦不住手滑）时，
+  // 静默归并会把整批条目错分到共享服务下 —— 至少留下一行日志可查。
+  if (text) console.warn("unknown 适用职能, falling back", { value: text });
+  return "HR 运营与共享服务";
 }
 
-/** Link cells read back as {link_record_ids: [...]} but are written as a bare id array. */
-function asLinkIds(value: unknown): string[] {
-  if (Array.isArray(value)) return value.filter((v): v is string => typeof v === "string");
-  if (value && typeof value === "object") {
-    const ids = (value as { link_record_ids?: unknown }).link_record_ids;
-    if (Array.isArray(ids)) return ids.filter((v): v is string => typeof v === "string");
+/**
+ * Link cells are written as a bare id array but read back in three different
+ * shapes: {link_record_ids: [...]}, a bare id array, and — what the live Base
+ * actually returns — an array of {record_ids, text_arr, table_id} groups. Miss
+ * that third one and every 技能条目 looks like it belongs to no 技能包, so the
+ * whole catalogue renders empty with no error anywhere.
+ */
+export function asLinkIds(value: unknown): string[] {
+  const strings = (input: unknown): string[] =>
+    Array.isArray(input) ? input.filter((v): v is string => typeof v === "string") : [];
+
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => {
+      if (typeof item === "string") return [item];
+      if (item && typeof item === "object") return strings((item as { record_ids?: unknown }).record_ids);
+      return [];
+    });
   }
+  if (value && typeof value === "object") return strings((value as { link_record_ids?: unknown }).link_record_ids);
   return [];
 }
 
+// Row-to-domain converters are exported pure functions so the live wire shapes
+// can be pinned by fixture tests. All three field-shape bugs so far (link
+// groups, url cells, epoch times) were invisible to the HTTP-boundary tests —
+// this is the one layer that has to be tested against recorded Feishu JSON.
+
+export function packageFromRow(row: Row): SkillPackage {
+  const carrier = asText(row.fields["载体类型"]);
+  const takeUrl = asUrl(row.fields["取得地址"]);
+  return {
+    id: row.record_id,
+    name: asText(row.fields["名称"]),
+    summary: asText(row.fields["简介"]),
+    carrier: (carrier === "zip" ? "zip" : "github") as Carrier,
+    takeUrl: takeUrl || null,
+    attachmentToken: asText(row.fields["附件文件标识"]) || null,
+    prerequisites: asText(row.fields["前置条件"]),
+    submitterNickname: asText(row.fields["提报人昵称"]),
+    reviewStatus: (asText(row.fields["审核状态"]) || "待审") as ReviewStatus,
+    takeCount: asNumber(row.fields["取得数"]) ?? 0,
+    deliveredWishIds: asLinkIds(row.fields["交付的许愿"]),
+  };
+}
+
+export function entryFromRow(row: Row): SkillEntry {
+  return {
+    id: row.record_id,
+    name: asText(row.fields["名称"]),
+    description: asText(row.fields["说明"]),
+    packageId: asLinkIds(row.fields["所属技能包"])[0] ?? "",
+    hrFunction: asHrFunction(row.fields["适用职能"]),
+    displayOrder: asNumber(row.fields["展示顺序"]) ?? 0,
+  };
+}
+
+export function wishFromRow(row: Row): Wish {
+  return {
+    id: row.record_id,
+    title: asText(row.fields["标题"]),
+    painScenario: asText(row.fields["痛点场景"]),
+    hrFunction: asHrFunction(row.fields["适用职能"]),
+    painHours: asNumber(row.fields["痛点工时"]),
+    wisherNickname: asText(row.fields["许愿人昵称"]),
+    endorsementCount: asNumber(row.fields["附议数"]) ?? 0,
+    status: (asText(row.fields["状态"]) || "收集中") as WishStatus,
+    createdAt: asDateText(row.fields["创建时间"]),
+  };
+}
+
+export function claimFromRow(row: Row): Claim {
+  return {
+    id: row.record_id,
+    wishId: asLinkIds(row.fields["关联许愿"])[0] ?? "",
+    claimerNickname: asText(row.fields["认领人昵称"]),
+    note: asText(row.fields["说明"]),
+    createdAt: asDateText(row.fields["创建时间"]),
+  };
+}
+
 export class FeishuBitable implements BitablePort {
-  private token: { value: string; expiresAt: number } | null = null;
   private readonly endpoint: string;
 
-  constructor(private readonly config: BitableConfig) {
+  constructor(
+    private readonly config: BitableConfig,
+    private readonly auth: TenantToken = new TenantToken(config),
+  ) {
     this.endpoint = config.endpoint ?? "https://open.feishu.cn";
   }
 
-  private async accessToken(): Promise<string> {
-    if (this.token && this.token.expiresAt > Date.now() + 60_000) return this.token.value;
-
-    const response = await fetch(`${this.endpoint}/open-apis/auth/v3/tenant_access_token/internal`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ app_id: this.config.appId, app_secret: this.config.appSecret }),
-    });
-    const body = (await response.json()) as { code: number; msg: string; tenant_access_token?: string; expire?: number };
-    if (body.code !== 0 || !body.tenant_access_token) {
-      throw new Error(`tenant_access_token failed: ${body.code} ${body.msg}`);
-    }
-    this.token = {
-      value: body.tenant_access_token,
-      expiresAt: Date.now() + (body.expire ?? 7200) * 1000,
-    };
-    return this.token.value;
-  }
-
   private async call<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const token = await this.accessToken();
+    const token = await this.auth.value();
     const response = await fetch(`${this.endpoint}/open-apis/bitable/v1/apps/${this.config.baseToken}${path}`, {
       ...init,
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...init.headers },
@@ -142,43 +220,31 @@ export class FeishuBitable implements BitablePort {
     });
   }
 
-  private toPackage(row: Row): SkillPackage {
-    const carrier = asText(row.fields["载体类型"]);
-    const takeUrl = asUrl(row.fields["取得地址"]);
-    return {
-      id: row.record_id,
-      name: asText(row.fields["名称"]),
-      summary: asText(row.fields["简介"]),
-      carrier: (carrier === "zip" ? "zip" : "github") as Carrier,
-      takeUrl: takeUrl || null,
-      prerequisites: asText(row.fields["前置条件"]),
-      submitterNickname: asText(row.fields["提报人昵称"]),
-      reviewStatus: (asText(row.fields["审核状态"]) || "待审") as ReviewStatus,
-      takeCount: asNumber(row.fields["取得数"]) ?? 0,
-      deliveredWishIds: asLinkIds(row.fields["交付的许愿"]),
-    };
-  }
-
-  private toWish(row: Row): Wish {
-    return {
-      id: row.record_id,
-      title: asText(row.fields["标题"]),
-      painScenario: asText(row.fields["痛点场景"]),
-      hrFunction: asHrFunction(row.fields["适用职能"]),
-      painHours: asNumber(row.fields["痛点工时"]),
-      wisherNickname: asText(row.fields["许愿人昵称"]),
-      endorsementCount: asNumber(row.fields["附议数"]) ?? 0,
-      status: (asText(row.fields["状态"]) || "收集中") as WishStatus,
-      createdAt: asText(row.fields["创建时间"]),
-    };
-  }
-
   async listPackages() {
-    return (await this.rows(this.config.tables.packages)).map((row) => this.toPackage(row));
+    return (await this.rows(this.config.tables.packages)).map(packageFromRow);
   }
 
   async getPackage(id: string) {
     return (await this.listPackages()).find((p) => p.id === id) ?? null;
+  }
+
+  async createPackage(input: Omit<SkillPackage, "id" | "takeCount">) {
+    const fields: Fields = {
+      名称: input.name,
+      简介: input.summary,
+      载体类型: input.carrier,
+      前置条件: input.prerequisites,
+      提报人昵称: input.submitterNickname,
+      审核状态: input.reviewStatus,
+      取得数: 0,
+    };
+    // 取得地址是 url 样式的文本列：读回来是 {text, link}，写进去也必须是这个形状，
+    // 给裸字符串会被拒（1254068 URLFieldConvFail）。
+    if (input.takeUrl) fields["取得地址"] = { text: input.takeUrl, link: input.takeUrl };
+    if (input.attachmentToken) fields["附件文件标识"] = input.attachmentToken;
+    if (input.deliveredWishIds.length > 0) fields["交付的许愿"] = input.deliveredWishIds;
+    const { record } = await this.create(this.config.tables.packages, fields);
+    return packageFromRow(record);
   }
 
   async incrementTakeCount(id: string) {
@@ -187,19 +253,23 @@ export class FeishuBitable implements BitablePort {
     await this.update(this.config.tables.packages, id, { 取得数: current.takeCount + 1 });
   }
 
+  async createEntry(input: Omit<SkillEntry, "id">): Promise<SkillEntry> {
+    const { record } = await this.create(this.config.tables.entries, {
+      名称: input.name,
+      说明: input.description,
+      所属技能包: [input.packageId],
+      适用职能: input.hrFunction,
+      展示顺序: input.displayOrder,
+    });
+    return { ...input, id: record.record_id };
+  }
+
   async listEntries(): Promise<SkillEntry[]> {
-    return (await this.rows(this.config.tables.entries)).map((row) => ({
-      id: row.record_id,
-      name: asText(row.fields["名称"]),
-      description: asText(row.fields["说明"]),
-      packageId: asLinkIds(row.fields["所属技能包"])[0] ?? "",
-      hrFunction: asHrFunction(row.fields["适用职能"]),
-      displayOrder: asNumber(row.fields["展示顺序"]) ?? 0,
-    }));
+    return (await this.rows(this.config.tables.entries)).map(entryFromRow);
   }
 
   async listWishes() {
-    return (await this.rows(this.config.tables.wishes)).map((row) => this.toWish(row));
+    return (await this.rows(this.config.tables.wishes)).map(wishFromRow);
   }
 
   async getWish(id: string) {
@@ -223,7 +293,7 @@ export class FeishuBitable implements BitablePort {
     };
     if (input.painHours !== null) fields["痛点工时"] = input.painHours;
     const { record } = await this.create(this.config.tables.wishes, fields);
-    return this.toWish(record);
+    return wishFromRow(record);
   }
 
   async setWishEndorsementCount(wishId: string, count: number) {
@@ -234,27 +304,18 @@ export class FeishuBitable implements BitablePort {
     await this.update(this.config.tables.wishes, wishId, { 状态: status });
   }
 
-  async findEndorsement(wishId: string, dedupeKey: string) {
-    const match = (await this.rows(this.config.tables.endorsements)).find(
-      (row) => asText(row.fields["去重标识"]) === dedupeKey && asLinkIds(row.fields["关联许愿"]).includes(wishId),
-    );
-    return match ? { id: match.record_id } : null;
+  async listEndorsements(wishId: string) {
+    return (await this.rows(this.config.tables.endorsements))
+      .filter((row) => asLinkIds(row.fields["关联许愿"]).includes(wishId))
+      .map((row) => ({ id: row.record_id, dedupeKey: asText(row.fields["去重标识"]) }));
   }
 
   async createEndorsement(wishId: string, dedupeKey: string) {
     await this.create(this.config.tables.endorsements, { 去重标识: dedupeKey, 关联许愿: [wishId] });
   }
 
-  async listClaims(wishId: string): Promise<Claim[]> {
-    return (await this.rows(this.config.tables.claims))
-      .filter((row) => asLinkIds(row.fields["关联许愿"]).includes(wishId))
-      .map((row) => ({
-        id: row.record_id,
-        wishId,
-        claimerNickname: asText(row.fields["认领人昵称"]),
-        note: asText(row.fields["说明"]),
-        createdAt: asText(row.fields["创建时间"]),
-      }));
+  async listClaims(): Promise<Claim[]> {
+    return (await this.rows(this.config.tables.claims)).map(claimFromRow);
   }
 
   async createClaim(input: { wishId: string; claimerNickname: string; note: string }) {
@@ -268,7 +329,7 @@ export class FeishuBitable implements BitablePort {
       wishId: input.wishId,
       claimerNickname: input.claimerNickname,
       note: input.note,
-      createdAt: asText(record.fields["创建时间"]),
+      createdAt: asDateText(record.fields["创建时间"]),
     };
   }
 

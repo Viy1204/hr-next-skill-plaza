@@ -1,4 +1,4 @@
-import type { BitablePort, Notification, NotifierPort } from "@/ports";
+import type { BitablePort, Notification, NotifierPort, StoragePort } from "@/ports";
 import type { Claim, HrFunction, SkillEntry, SkillPackage, Wish } from "@/domain/types";
 
 // In-memory implementations of the two Feishu ports. Used by every test; also
@@ -26,7 +26,15 @@ export class InMemoryBitable implements BitablePort {
     this.config = { 附议升级阈值: "10", 取得去重窗口小时: "24", ...seed.config };
     for (const p of seed.packages ?? []) this.packages.push(this.fillPackage(p));
     for (const e of seed.entries ?? []) this.entries.push(this.fillEntry(e));
-    for (const w of seed.wishes ?? []) this.wishes.push(this.fillWish(w));
+    for (const w of seed.wishes ?? []) {
+      const wish = this.fillWish(w);
+      this.wishes.push(wish);
+      // 附议数的真相源是附议表的行数。种子只给数字时补齐等量的行，
+      // 否则「按行数自愈」会把种子状态当成漂移纠正掉。
+      for (let i = 0; i < wish.endorsementCount; i += 1) {
+        this.endorsements.push({ id: this.id("end"), wishId: wish.id, dedupeKey: `seed-${wish.id}-${i}` });
+      }
+    }
   }
 
   private id(prefix: string) {
@@ -45,6 +53,7 @@ export class InMemoryBitable implements BitablePort {
       summary: p.summary ?? "",
       carrier: p.carrier ?? "github",
       takeUrl: p.takeUrl ?? null,
+      attachmentToken: p.attachmentToken ?? null,
       prerequisites: p.prerequisites ?? "",
       submitterNickname: p.submitterNickname ?? "",
       reviewStatus: p.reviewStatus ?? "已发布",
@@ -87,6 +96,13 @@ export class InMemoryBitable implements BitablePort {
     return found ? { ...found } : null;
   }
 
+  async createPackage(input: Omit<SkillPackage, "id" | "takeCount">) {
+    this.guardWrite();
+    const pkg = this.fillPackage(input);
+    this.packages.push(pkg);
+    return { ...pkg };
+  }
+
   async incrementTakeCount(id: string) {
     this.guardWrite();
     const found = this.packages.find((p) => p.id === id);
@@ -95,6 +111,13 @@ export class InMemoryBitable implements BitablePort {
 
   async listEntries() {
     return this.entries.map((e) => ({ ...e }));
+  }
+
+  async createEntry(input: Omit<SkillEntry, "id">) {
+    this.guardWrite();
+    const entry = this.fillEntry(input);
+    this.entries.push(entry);
+    return { ...entry };
   }
 
   async listWishes() {
@@ -131,9 +154,8 @@ export class InMemoryBitable implements BitablePort {
     if (found) found.status = status;
   }
 
-  async findEndorsement(wishId: string, dedupeKey: string) {
-    const found = this.endorsements.find((e) => e.wishId === wishId && e.dedupeKey === dedupeKey);
-    return found ? { id: found.id } : null;
+  async listEndorsements(wishId: string) {
+    return this.endorsements.filter((e) => e.wishId === wishId).map(({ id, dedupeKey }) => ({ id, dedupeKey }));
   }
 
   async createEndorsement(wishId: string, dedupeKey: string) {
@@ -141,8 +163,8 @@ export class InMemoryBitable implements BitablePort {
     this.endorsements.push({ id: this.id("end"), wishId, dedupeKey });
   }
 
-  async listClaims(wishId: string) {
-    return this.claims.filter((c) => c.wishId === wishId).map((c) => ({ ...c }));
+  async listClaims() {
+    return this.claims.map((c) => ({ ...c }));
   }
 
   async createClaim(input: { wishId: string; claimerNickname: string; note: string }) {
@@ -154,6 +176,12 @@ export class InMemoryBitable implements BitablePort {
 
   async getConfig() {
     return { ...this.config };
+  }
+
+  /** What an operator does in the Bitable when they publish or delist a package. */
+  setReviewStatus(packageId: string, status: SkillPackage["reviewStatus"]) {
+    const pkg = this.packages.find((p) => p.id === packageId);
+    if (pkg) pkg.reviewStatus = status;
   }
 
   /** Link a package to a wish, i.e. deliver it. */
@@ -169,12 +197,44 @@ export class InMemoryBitable implements BitablePort {
 
 export class InMemoryNotifier implements NotifierPort {
   readonly sent: Notification[] = [];
+  /** Set to make every send throw, to prove a dead webhook never fails the main action. */
+  sendsFail = false;
 
   async send(notification: Notification) {
+    if (this.sendsFail) throw new Error("webhook send failed");
     this.sent.push(notification);
   }
 
   of(kind: Notification["kind"]) {
     return this.sent.filter((n) => n.kind === kind);
+  }
+}
+
+/** 内存存储：测试与本地演示用，文件只活在这个进程里。 */
+export class InMemoryStorage implements StoragePort {
+  private files = new Map<string, { fileName: string; bytes: Uint8Array }>();
+  private seq = 0;
+  /** Set to make the next upload throw, to prove a failed upload does not create a half-listed package. */
+  uploadsFail = false;
+
+  async upload(input: { fileName: string; bytes: Uint8Array }) {
+    if (this.uploadsFail) throw new Error("drive upload failed");
+    this.seq += 1;
+    const token = `file${this.seq}`;
+    this.files.set(token, input);
+    return token;
+  }
+
+  async open(token: string) {
+    const found = this.files.get(token);
+    if (!found) return null;
+    return {
+      fileName: found.fileName,
+      body: new Blob([found.bytes as BlobPart]).stream() as ReadableStream<Uint8Array>,
+    };
+  }
+
+  get count() {
+    return this.files.size;
   }
 }
