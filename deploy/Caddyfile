@@ -1,0 +1,24 @@
+# /etc/caddy/Caddyfile
+#
+# Caddy 占 80/443，向 Let's Encrypt 自动签发并续期证书；应用只听 127.0.0.1:3000。
+# 80 必须保持放行：ACME 的 HTTP challenge 走它，关掉证书就续不了。
+
+{
+	email yifan@lepro.com
+}
+
+viy1204.me {
+	reverse_proxy 127.0.0.1:3000
+	encode gzip
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 10MiB
+			roll_keep 3
+		}
+	}
+}
+
+# 站内链接和群推送一律用 apex，www 只做跳转，省得两个地址各自被人收藏。
+www.viy1204.me {
+	redir https://viy1204.me{uri} permanent
+}

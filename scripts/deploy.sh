@@ -15,6 +15,9 @@
 #   chown root:plaza /etc/hr-plaza.env && chmod 640 /etc/hr-plaza.env
 #   scp deploy/hr-plaza.service $HOST:/etc/systemd/system/
 #   systemctl daemon-reload && systemctl enable --now hr-plaza
+#   dnf install -y caddy
+#   scp deploy/Caddyfile $HOST:/etc/caddy/Caddyfile   # 域名改成你的
+#   systemctl enable --now caddy                      # 安全组要放行 80 和 443
 
 set -euo pipefail
 : "${HOST:?set HOST to the ssh target, e.g. HOST=viy}"
