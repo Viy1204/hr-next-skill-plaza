@@ -1,0 +1,12 @@
+[Unit]
+Description=同步多维表格里的交付关联，推送「许愿已交付」
+After=hr-plaza.service
+Requires=hr-plaza.service
+
+[Service]
+Type=oneshot
+# 拿的是同一份配置，密钥不会在这里出现第二遍
+EnvironmentFile=/etc/hr-plaza.env
+ExecStart=/usr/bin/curl -fsS --max-time 60 -X POST \
+  -H "x-sync-secret: ${DELIVERY_SYNC_SECRET}" \
+  http://127.0.0.1:3000/api/internal/deliveries/sync
