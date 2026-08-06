@@ -27,6 +27,13 @@ interface Row {
   fields: Fields;
 }
 
+const RETRYABLE_CODES = new Set([1254607]);
+const RETRY_DELAYS_MS = [250, 750];
+
+function wait(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 /** Bitable returns plain strings for plain text but {text, link} for url-styled
  *  text, and bare numbers for number/created-time cells. */
 export function asText(value: unknown): string {
@@ -181,14 +188,23 @@ export class FeishuBitable implements BitablePort {
 
   private async call<T>(path: string, init: RequestInit = {}): Promise<T> {
     const token = await this.auth.value();
-    const response = await fetch(`${this.endpoint}/open-apis/bitable/v1/apps/${this.config.baseToken}${path}`, {
-      ...init,
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...init.headers },
-      cache: "no-store",
-    });
-    const body = (await response.json()) as { code: number; msg: string; data?: T };
-    if (body.code !== 0) throw new Error(`bitable ${path} failed: ${body.code} ${body.msg}`);
-    return body.data as T;
+    for (let attempt = 0; ; attempt += 1) {
+      const response = await fetch(`${this.endpoint}/open-apis/bitable/v1/apps/${this.config.baseToken}${path}`, {
+        ...init,
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...init.headers },
+        cache: "no-store",
+      });
+      const body = (await response.json()) as { code: number; msg: string; data?: T };
+      if (body.code === 0) return body.data as T;
+
+      const delay = RETRY_DELAYS_MS[attempt];
+      const isRead = !init.method || init.method === "GET";
+      if (!isRead || !RETRYABLE_CODES.has(body.code) || delay === undefined) {
+        throw new Error(`bitable ${path} failed: ${body.code} ${body.msg}`);
+      }
+      console.warn("bitable request not ready, retrying", { path, code: body.code, attempt: attempt + 1 });
+      await wait(delay);
+    }
   }
 
   private async rows(tableId: string): Promise<Row[]> {

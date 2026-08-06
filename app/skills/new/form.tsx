@@ -30,7 +30,13 @@ function messageFor(code: string | undefined) {
   }
 }
 
-export default function SubmitPackageForm({ wishes }: { wishes: { id: string; title: string }[] }) {
+export default function SubmitPackageForm({
+  wishes,
+  wishesUnavailable = false,
+}: {
+  wishes: { id: string; title: string }[];
+  wishesUnavailable?: boolean;
+}) {
   const [entries, setEntries] = useState<EntryDraft[]>([{ ...EMPTY_ENTRY }]);
   const [carrier, setCarrier] = useState("github");
   const [pending, setPending] = useState(false);
@@ -142,8 +148,12 @@ export default function SubmitPackageForm({ wishes }: { wishes: { id: string; ti
 
         <label>
           它交付了哪条许愿（选填）
-          <span className="hint">如果这个技能包是为了满足许愿池里的某条痛点，选上；运营上架后那条许愿会自动标记为已交付</span>
-          <select name="deliveredWishId" defaultValue="">
+          <span className="hint">
+            {wishesUnavailable
+              ? "许愿列表暂时没加载出来，可以先不关联并正常提交；需要关联时请稍后再试"
+              : "如果这个技能包是为了满足许愿池里的某条痛点，选上；运营上架后那条许愿会自动标记为已交付"}
+          </span>
+          <select name="deliveredWishId" defaultValue="" disabled={wishesUnavailable}>
             <option value="">不关联</option>
             {wishes.map((wish) => (
               <option key={wish.id} value={wish.id}>
