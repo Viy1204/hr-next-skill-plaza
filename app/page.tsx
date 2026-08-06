@@ -1,12 +1,14 @@
 import Link from "next/link";
-import { listSkillEntries, listWishes } from "@/app/use-cases";
-import { deps } from "@/runtime";
+import { pageReadQueries } from "@/runtime";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const d = deps();
-  const [entriesResult, wishesResult] = await Promise.allSettled([listSkillEntries(d), listWishes(d)]);
+  const queries = pageReadQueries();
+  const [entriesResult, wishesResult] = await Promise.allSettled([
+    queries.listSkillEntries(),
+    queries.listWishes(),
+  ]);
   const entriesUnavailable = entriesResult.status === "rejected";
   const wishesUnavailable = wishesResult.status === "rejected";
   const entries = entriesResult.status === "fulfilled" ? entriesResult.value : [];

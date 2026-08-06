@@ -89,4 +89,59 @@ describe("FeishuBitable transient failures", () => {
     ).rejects.toThrow("1254607 Data not ready");
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("requests only the fields needed to build packages", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(json({ code: 0, msg: "ok", tenant_access_token: "token", expire: 7200 }))
+      .mockResolvedValueOnce(json({ code: 0, msg: "success", data: { items: [], has_more: false } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await new FeishuBitable(config).listPackages();
+
+    const requestUrl = new URL(String(fetchMock.mock.calls[1]?.[0]));
+    expect(JSON.parse(requestUrl.searchParams.get("field_names") ?? "[]")).toEqual([
+      "名称",
+      "简介",
+      "载体类型",
+      "取得地址",
+      "附件文件标识",
+      "前置条件",
+      "提报人昵称",
+      "审核状态",
+      "取得数",
+      "交付的许愿",
+    ]);
+    expect(requestUrl.searchParams.get("page_size")).toBe("500");
+  });
+
+  it("limits every list query to its domain fields", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(json({ code: 0, msg: "ok", tenant_access_token: "token", expire: 7200 }))
+      .mockImplementation(async () => json({ code: 0, msg: "success", data: { items: [], has_more: false } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const bitable = new FeishuBitable(config);
+
+    await bitable.listEntries();
+    await bitable.listWishes();
+    await bitable.listClaims();
+    await bitable.getConfig();
+    await bitable.listEndorsements("wish-1");
+
+    const fieldsByTable = Object.fromEntries(
+      fetchMock.mock.calls.slice(1).map(([input]) => {
+        const url = new URL(String(input));
+        const tableId = /\/tables\/([^/]+)\//.exec(url.pathname)?.[1] ?? "";
+        return [tableId, JSON.parse(url.searchParams.get("field_names") ?? "[]")];
+      }),
+    );
+    expect(fieldsByTable).toEqual({
+      "entries-table": ["名称", "说明", "所属技能包", "适用职能", "展示顺序"],
+      "wishes-table": ["标题", "痛点场景", "适用职能", "痛点工时", "许愿人昵称", "附议数", "状态", "创建时间"],
+      "claims-table": ["关联许愿", "认领人昵称", "说明", "创建时间"],
+      "config-table": ["配置项", "值"],
+      "endorsements-table": ["关联许愿", "去重标识"],
+    });
+  });
 });

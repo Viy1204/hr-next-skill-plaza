@@ -4,7 +4,8 @@ import { InMemoryBitable, InMemoryNotifier, InMemoryStorage } from "@/adapters/i
 import { FeishuDrive } from "@/adapters/feishu-drive";
 import { TenantToken } from "@/adapters/tenant-token";
 import { ConsoleNotifier, WebhookNotifier } from "@/adapters/webhook-notifier";
-import type { Deps } from "@/app/use-cases";
+import { createPageReadQueries } from "@/app/page-read-queries";
+import { listSkillEntries, listWishes, type Deps } from "@/app/use-cases";
 
 // Production wiring. Tests never import this file — they build their own Deps
 // from tests/support/harness.ts with the in-memory ports.
@@ -18,7 +19,10 @@ function required(name: string): string {
 // Next.js re-evaluates modules on recompile and across route workers, so a plain
 // module-level variable loses the in-memory store between requests. Parking it on
 // globalThis keeps local demo mode usable end to end.
-const globalCache = globalThis as typeof globalThis & { __plazaDeps?: Deps };
+const globalCache = globalThis as typeof globalThis & {
+  __plazaDeps?: Deps;
+  __plazaPageReadQueries?: ReturnType<typeof createPageReadQueries>;
+};
 
 let cached: Deps | null = globalCache.__plazaDeps ?? null;
 
@@ -68,4 +72,14 @@ export function deps(): Deps {
 
 export function syncSecret() {
   return process.env.DELIVERY_SYNC_SECRET;
+}
+
+export function pageReadQueries() {
+  if (!globalCache.__plazaPageReadQueries) {
+    globalCache.__plazaPageReadQueries = createPageReadQueries({
+      loadSkillEntries: () => listSkillEntries(deps()),
+      loadWishes: () => listWishes(deps()),
+    });
+  }
+  return globalCache.__plazaPageReadQueries;
 }

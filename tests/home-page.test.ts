@@ -1,11 +1,19 @@
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { deps } from "@/runtime";
+import { listSkillEntries, listWishes } from "@/app/use-cases";
+import { pageReadQueries } from "@/runtime";
 import Home from "../app/page";
 import { harness } from "./support/harness";
 
-vi.mock("@/runtime", () => ({ deps: vi.fn() }));
+vi.mock("@/runtime", () => ({ pageReadQueries: vi.fn() }));
+
+function queriesFor(test: ReturnType<typeof harness>) {
+  return {
+    listSkillEntries: () => listSkillEntries(test.deps),
+    listWishes: () => listWishes(test.deps),
+  };
+}
 
 describe("home page", () => {
   afterEach(() => {
@@ -17,7 +25,7 @@ describe("home page", () => {
     vi.stubGlobal("React", React);
     const test = harness();
     test.bitable.listPackages = vi.fn().mockRejectedValue(new Error("1254607 Data not ready"));
-    vi.mocked(deps).mockReturnValue(test.deps);
+    vi.mocked(pageReadQueries).mockReturnValue(queriesFor(test));
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     const markup = renderToStaticMarkup(await Home());
@@ -33,7 +41,7 @@ describe("home page", () => {
     vi.stubGlobal("React", React);
     const test = harness({ wishes: [{ id: "wish-1", title: "每月自动核对花名册" }] });
     test.bitable.listEntries = vi.fn().mockRejectedValue(new Error("1254607 Data not ready"));
-    vi.mocked(deps).mockReturnValue(test.deps);
+    vi.mocked(pageReadQueries).mockReturnValue(queriesFor(test));
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     const markup = renderToStaticMarkup(await Home());

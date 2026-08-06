@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { HR_FUNCTIONS, type HrFunction } from "@/domain/types";
-import { listSkillEntries } from "@/app/use-cases";
-import { deps } from "@/runtime";
+import { pageReadQueries } from "@/runtime";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +15,7 @@ export default async function SkillsPage({
 }) {
   const { f, q } = await searchParams;
   const hrFunction = asHrFunction(f);
-  const entries = await listSkillEntries(deps(), { hrFunction, query: q });
+  const entries = await pageReadQueries().listSkillEntries({ hrFunction, query: q });
 
   return (
     <>

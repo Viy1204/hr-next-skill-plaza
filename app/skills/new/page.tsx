@@ -1,5 +1,4 @@
-import { listWishes } from "@/app/use-cases";
-import { deps } from "@/runtime";
+import { pageReadQueries } from "@/runtime";
 import SubmitPackageForm from "./form";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +8,7 @@ export default async function NewPackagePage() {
   let wishesUnavailable = false;
   try {
     // 已交付的许愿不再需要人做，别摆进来让作者误选。
-    wishes = (await listWishes(deps()))
+    wishes = (await pageReadQueries().listWishes())
       .filter((wish) => wish.status !== "已交付")
       .map((wish) => ({ id: wish.id, title: wish.title }));
   } catch (error) {

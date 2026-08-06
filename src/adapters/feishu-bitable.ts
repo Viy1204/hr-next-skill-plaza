@@ -29,6 +29,23 @@ interface Row {
 
 const RETRYABLE_CODES = new Set([1254607]);
 const RETRY_DELAYS_MS = [250, 750];
+const PACKAGE_FIELDS = [
+  "名称",
+  "简介",
+  "载体类型",
+  "取得地址",
+  "附件文件标识",
+  "前置条件",
+  "提报人昵称",
+  "审核状态",
+  "取得数",
+  "交付的许愿",
+] as const;
+const ENTRY_FIELDS = ["名称", "说明", "所属技能包", "适用职能", "展示顺序"] as const;
+const WISH_FIELDS = ["标题", "痛点场景", "适用职能", "痛点工时", "许愿人昵称", "附议数", "状态", "创建时间"] as const;
+const CLAIM_FIELDS = ["关联许愿", "认领人昵称", "说明", "创建时间"] as const;
+const ENDORSEMENT_FIELDS = ["关联许愿", "去重标识"] as const;
+const CONFIG_FIELDS = ["配置项", "值"] as const;
 
 function wait(milliseconds: number) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -207,11 +224,12 @@ export class FeishuBitable implements BitablePort {
     }
   }
 
-  private async rows(tableId: string): Promise<Row[]> {
+  private async rows(tableId: string, fieldNames?: readonly string[]): Promise<Row[]> {
     const collected: Row[] = [];
     let pageToken: string | undefined;
     do {
       const query = new URLSearchParams({ page_size: "500" });
+      if (fieldNames) query.set("field_names", JSON.stringify(fieldNames));
       if (pageToken) query.set("page_token", pageToken);
       const data = await this.call<{ items?: Row[]; page_token?: string; has_more?: boolean }>(
         `/tables/${tableId}/records?${query}`,
@@ -237,7 +255,7 @@ export class FeishuBitable implements BitablePort {
   }
 
   async listPackages() {
-    return (await this.rows(this.config.tables.packages)).map(packageFromRow);
+    return (await this.rows(this.config.tables.packages, PACKAGE_FIELDS)).map(packageFromRow);
   }
 
   async getPackage(id: string) {
@@ -281,11 +299,11 @@ export class FeishuBitable implements BitablePort {
   }
 
   async listEntries(): Promise<SkillEntry[]> {
-    return (await this.rows(this.config.tables.entries)).map(entryFromRow);
+    return (await this.rows(this.config.tables.entries, ENTRY_FIELDS)).map(entryFromRow);
   }
 
   async listWishes() {
-    return (await this.rows(this.config.tables.wishes)).map(wishFromRow);
+    return (await this.rows(this.config.tables.wishes, WISH_FIELDS)).map(wishFromRow);
   }
 
   async getWish(id: string) {
@@ -321,7 +339,7 @@ export class FeishuBitable implements BitablePort {
   }
 
   async listEndorsements(wishId: string) {
-    return (await this.rows(this.config.tables.endorsements))
+    return (await this.rows(this.config.tables.endorsements, ENDORSEMENT_FIELDS))
       .filter((row) => asLinkIds(row.fields["关联许愿"]).includes(wishId))
       .map((row) => ({ id: row.record_id, dedupeKey: asText(row.fields["去重标识"]) }));
   }
@@ -331,7 +349,7 @@ export class FeishuBitable implements BitablePort {
   }
 
   async listClaims(): Promise<Claim[]> {
-    return (await this.rows(this.config.tables.claims)).map(claimFromRow);
+    return (await this.rows(this.config.tables.claims, CLAIM_FIELDS)).map(claimFromRow);
   }
 
   async createClaim(input: { wishId: string; claimerNickname: string; note: string }) {
@@ -350,7 +368,7 @@ export class FeishuBitable implements BitablePort {
   }
 
   async getConfig() {
-    const entries = (await this.rows(this.config.tables.config)).map(
+    const entries = (await this.rows(this.config.tables.config, CONFIG_FIELDS)).map(
       (row) => [asText(row.fields["配置项"]), asText(row.fields["值"])] as const,
     );
     return Object.fromEntries(entries.filter(([key]) => key));

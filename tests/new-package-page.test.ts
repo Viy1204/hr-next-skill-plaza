@@ -1,18 +1,22 @@
 import type { ReactElement } from "react";
 import * as React from "react";
 import { describe, expect, it, vi } from "vitest";
-import { deps } from "@/runtime";
+import { listWishes } from "@/app/use-cases";
+import { pageReadQueries } from "@/runtime";
 import NewPackagePage from "../app/skills/new/page";
 import { harness } from "./support/harness";
 
-vi.mock("@/runtime", () => ({ deps: vi.fn() }));
+vi.mock("@/runtime", () => ({ pageReadQueries: vi.fn() }));
 
 describe("new package page", () => {
   it("keeps the submission form available when wishes cannot be loaded", async () => {
     vi.stubGlobal("React", React);
     const test = harness();
     test.bitable.listPackages = vi.fn().mockRejectedValue(new Error("1254607 Data not ready"));
-    vi.mocked(deps).mockReturnValue(test.deps);
+    vi.mocked(pageReadQueries).mockReturnValue({
+      listSkillEntries: vi.fn().mockResolvedValue([]),
+      listWishes: () => listWishes(test.deps),
+    });
     const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     const page = (await NewPackagePage()) as ReactElement<{
