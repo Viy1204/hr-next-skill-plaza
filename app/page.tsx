@@ -6,7 +6,17 @@ export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const d = deps();
-  const [entries, wishes] = await Promise.all([listSkillEntries(d), listWishes(d)]);
+  const [entriesResult, wishesResult] = await Promise.allSettled([listSkillEntries(d), listWishes(d)]);
+  const entriesUnavailable = entriesResult.status === "rejected";
+  const wishesUnavailable = wishesResult.status === "rejected";
+  const entries = entriesResult.status === "fulfilled" ? entriesResult.value : [];
+  const wishes = wishesResult.status === "fulfilled" ? wishesResult.value : [];
+  if (entriesResult.status === "rejected") {
+    console.error("failed to load skills for home page", { error: entriesResult.reason });
+  }
+  if (wishesResult.status === "rejected") {
+    console.error("failed to load wishes for home page", { error: wishesResult.reason });
+  }
   const openForClaim = wishes.filter((w) => w.status === "待认领");
   const topEntries = entries.slice(0, 3);
   const topWishes = wishes.slice(0, 2);
@@ -40,12 +50,18 @@ export default async function Home() {
         </div>
       </div>
 
+      {entriesUnavailable || wishesUnavailable ? (
+        <section className="band">
+          <p className="note">部分数据暂时没加载出来，可以先使用下面的入口，稍后刷新试试。</p>
+        </section>
+      ) : null}
+
       <section className="band band-soft">
         <p className="section-eyebrow">两个入口</p>
         <h2>取走现成的，或者许下想要的</h2>
         <div className="duo">
           <div className="duo-card">
-            <div className="duo-num">{entries.length}</div>
+            <div className="duo-num">{entriesUnavailable ? "—" : entries.length}</div>
             <div className="duo-label">个技能条目已上架</div>
             <p className="duo-desc">按取得数排序。取得数只代表有人想试，不代表好用 —— 取得前先看前置条件。</p>
             <p className="duo-actions">
@@ -55,7 +71,7 @@ export default async function Home() {
             </p>
           </div>
           <div className="duo-card dark">
-            <div className="duo-num">{wishes.length}</div>
+            <div className="duo-num">{wishesUnavailable ? "—" : wishes.length}</div>
             <div className="duo-label">条许愿 · 其中 {openForClaim.length} 条待认领</div>
             <p className="duo-desc">只描述痛点，不用想技术方案。附议多了，就会有人来认领。</p>
             <p className="duo-actions">
@@ -73,7 +89,9 @@ export default async function Home() {
       <section className="band">
         <p className="section-eyebrow">技能目录</p>
         <h2>群友已经做出来的技能包</h2>
-        {topEntries.length === 0 ? (
+        {entriesUnavailable ? (
+          <p className="empty">技能目录暂时没加载出来，请稍后刷新。</p>
+        ) : topEntries.length === 0 ? (
           <p className="empty">还没有技能条目。</p>
         ) : (
           topEntries.map((entry) => (
@@ -104,7 +122,9 @@ export default async function Home() {
       <section className="band band-cream">
         <p className="section-eyebrow">许愿池</p>
         <h2>这些痛点还在等人来做</h2>
-        {topWishes.length === 0 ? (
+        {wishesUnavailable ? (
+          <p className="section-desc">许愿池暂时没加载出来，请稍后刷新。</p>
+        ) : topWishes.length === 0 ? (
           <>
             <p className="section-desc">还没有许愿。第一条可以由你来提 —— 只描述痛点，不用想技术方案。</p>
             <p style={{ marginTop: 20 }}>
