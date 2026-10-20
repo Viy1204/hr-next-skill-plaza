@@ -1,0 +1,16 @@
+# 部署脚本要在 Linux 上跑，必须保持 LF。
+*.sh text eol=lf
+
+# 这个文件自己也要 LF：规则文件若被转成 CRLF，规则照样生效，
+# 但 diff 里会出现整文件改动。显式豁免。
+.gitattributes text eol=lf
+
+# 源码与配置按仓库原样存放，不在检出时转换。
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.mjs text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
