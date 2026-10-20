@@ -2,6 +2,13 @@ import type { HrFunction } from "@/domain/types";
 import type { SkillEntryView, WishView } from "./use-cases";
 
 const CACHE_TTL_MS = 60_000;
+/**
+ * 陈旧值的兜底窗口。飞书读失败时，页面宁可显示上一次成功读到的旧数据，
+ * 也不要整页 500 —— 对社群小站来说，「目录少更新了一会儿」比「链接点开是
+ * 报错页」好得多。超过这个窗口还没读到新数据，就把错误原样抛出去，
+ * 不拿过期数据无限期糊墙。
+ */
+const STALE_FALLBACK_MS = 10 * 60_000;
 
 interface PageReadQueryLoaders {
   loadSkillEntries(): Promise<SkillEntryView[]>;
@@ -11,15 +18,32 @@ interface PageReadQueryLoaders {
 
 function cachedForOneMinute<T>(load: () => Promise<T>, now: () => number) {
   let cache: { value: Promise<T>; expiresAt: number } | undefined;
+  /** 上一次成功读到的值，连同它成功的时刻 —— 失败时的兜底来源。 */
+  let lastGood: { value: T; at: number } | undefined;
+
   return async () => {
     if (!cache || cache.expiresAt <= now()) {
       const value = load();
       cache = { value, expiresAt: now() + CACHE_TTL_MS };
-      value.catch(() => {
-        if (cache?.value === value) cache = undefined;
-      });
+      value.then(
+        (resolved) => {
+          lastGood = { value: resolved, at: now() };
+        },
+        () => {
+          if (cache?.value === value) cache = undefined;
+        },
+      );
     }
-    return cache.value;
+    try {
+      return await cache.value;
+    } catch (error) {
+      // 飞书暂时不可用：退回上次成功读到的值，别把整页拖成 500。
+      if (lastGood && now() - lastGood.at <= STALE_FALLBACK_MS) {
+        console.warn("serving stale page data after a failed read", { ageMs: now() - lastGood.at });
+        return lastGood.value;
+      }
+      throw error;
+    }
   };
 }
 

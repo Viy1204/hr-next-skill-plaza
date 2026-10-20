@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { HR_FUNCTIONS, type HrFunction } from "@/domain/types";
-import { listWishes } from "@/app/use-cases";
-import { deps } from "@/runtime";
+import { pageReadQueries } from "@/runtime";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +11,9 @@ function asHrFunction(value: string | undefined): HrFunction | undefined {
 export default async function WishesPage({ searchParams }: { searchParams: Promise<{ f?: string }> }) {
   const { f } = await searchParams;
   const hrFunction = asHrFunction(f);
-  const wishes = await listWishes(deps(), { hrFunction });
+  // 走 pageReadQueries 的短缓存：直接调 listWishes 会让每次访问都打一轮飞书读，
+  // 撞上并发上限就整页 500（实测 /wishes 比 /skills 慢且更容易挂，原因就在这）。
+  const wishes = await pageReadQueries().listWishes({ hrFunction });
 
   return (
     <>
