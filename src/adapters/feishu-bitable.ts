@@ -30,6 +30,14 @@ interface Row {
 const RETRYABLE_CODES = new Set([1254607]);
 const RETRY_DELAYS_MS = [500, 1500, 3000];
 /**
+ * 固定退避有个隐蔽的坑：几个并发请求会在同一毫秒一起重试，再次同时撞上
+ * 限流 —— 失败被自己放大。线上抓到过连续三次重试全部 1254607 的记录，
+ * 就是这么来的。给退避加一段随机抖动，把它们错开。
+ */
+function jitteredDelay(base: number): number {
+  return Math.round(base * (0.5 + Math.random() * 0.5));
+}
+/**
  * 飞书 Bitable 对同一个应用的多维表格有并发上限：同时读超过 3 张表就开始回
  * 1254607「Data not ready」，并发 6 时约六成请求失败（实测：并发 3 全成功，
  * 并发 4 开始报错，并发 6 失败率 58%）。单表读本身要 3-15 秒，所以这个上限
@@ -272,7 +280,7 @@ export class FeishuBitable implements BitablePort {
           throw new Error(`bitable ${path} failed: ${body.code} ${body.msg}`);
         }
         console.warn("bitable request not ready, retrying", { path, code: body.code, attempt: attempt + 1 });
-        await wait(delay);
+        await wait(jitteredDelay(delay));
       }
     };
 

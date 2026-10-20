@@ -178,6 +178,31 @@ describe("FeishuBitable concurrency gate", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it("spreads retries apart with jitter instead of retrying in lockstep", async () => {
+    vi.useFakeTimers();
+    // 固定随机数，把抖动后的实际等待时刻钉死。
+    vi.spyOn(Math, "random").mockReturnValueOnce(0).mockReturnValueOnce(0.9).mockReturnValue(0.5);
+    const stamps: number[] = [];
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      if (String(input).includes("tenant_access_token")) return tokenResponse();
+      stamps.push(Date.now());
+      return json({ code: 1254607, msg: "Data not ready, please try again later" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = new FeishuBitable(config).listPackages();
+    const assertion = expect(result).rejects.toThrow("1254607 Data not ready");
+    await vi.runAllTimersAsync();
+    await assertion;
+
+    // 基础退避 500/1500/3000，抖动系数是 0.5 + random * 0.5：
+    // 第一次重试 500 * 0.5 = 250ms，第二次 1500 * 0.95 = 1425ms，
+    // 第三次 3000 * 0.75 = 2250ms。
+    // 固定退避会让并发请求在同一毫秒一起重试，等于把限流失败再放大一次。
+    const base = stamps[0] ?? 0;
+    expect(stamps.map((s) => s - base)).toEqual([0, 250, 1675, 3925]);
+  });
+
   it("gives a Data not ready read three retries before failing", async () => {
     vi.useFakeTimers();
     const fetchMock = vi
