@@ -28,7 +28,26 @@ interface Row {
 }
 
 const RETRYABLE_CODES = new Set([1254607]);
-const RETRY_DELAYS_MS = [250, 750];
+const RETRY_DELAYS_MS = [500, 1500, 3000];
+/**
+ * 固定退避有个隐蔽的坑：几个并发请求会在同一毫秒一起重试，再次同时撞上
+ * 限流 —— 失败被自己放大。线上抓到过连续三次重试全部 1254607 的记录，
+ * 就是这么来的。给退避加一段随机抖动，把它们错开。
+ */
+function jitteredDelay(base: number): number {
+  return Math.round(base * (0.5 + Math.random() * 0.5));
+}
+/**
+ * 飞书 Bitable 对同一个应用的多维表格有并发上限：同时读超过 3 张表就开始回
+ * 1254607「Data not ready」，并发 6 时约六成请求失败（实测：并发 3 全成功，
+ * 并发 4 开始报错，并发 6 失败率 58%）。单表读本身要 3-15 秒，所以这个上限
+ * 撞得很突然 —— 页面用 Promise.all 并行读 6 张表时必然踩线。
+ *
+ * 与其让上层把 Promise.all 拆成串行（串行 6 表要 30-50 秒，页面不可用），
+ * 不如在这里设闸：读请求排队进入，最多 3 个在途。排队时间换来成功率，
+ * 页面仍然能在十几秒内出结果。
+ */
+const MAX_CONCURRENT_READS = 3;
 const PACKAGE_FIELDS = [
   "名称",
   "简介",
@@ -195,6 +214,12 @@ export function claimFromRow(row: Row): Claim {
 
 export class FeishuBitable implements BitablePort {
   private readonly endpoint: string;
+  /** 在途请求数（读+写共用一个闸）。 */
+  private inFlight = 0;
+  /** 等闸的请求队列。 */
+  private readonly waiters: (() => void)[] = [];
+  /** 同一路径的并发读合并成一次：首页两个用例都要读技能包表，别读两遍。 */
+  private readonly inFlightReadsByPath = new Map<string, Promise<unknown>>();
 
   constructor(
     private readonly config: BitableConfig,
@@ -203,25 +228,75 @@ export class FeishuBitable implements BitablePort {
     this.endpoint = config.endpoint ?? "https://open.feishu.cn";
   }
 
-  private async call<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const token = await this.auth.value();
-    for (let attempt = 0; ; attempt += 1) {
-      const response = await fetch(`${this.endpoint}/open-apis/bitable/v1/apps/${this.config.baseToken}${path}`, {
-        ...init,
-        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...init.headers },
-        cache: "no-store",
-      });
-      const body = (await response.json()) as { code: number; msg: string; data?: T };
-      if (body.code === 0) return body.data as T;
-
-      const delay = RETRY_DELAYS_MS[attempt];
-      const isRead = !init.method || init.method === "GET";
-      if (!isRead || !RETRYABLE_CODES.has(body.code) || delay === undefined) {
-        throw new Error(`bitable ${path} failed: ${body.code} ${body.msg}`);
-      }
-      console.warn("bitable request not ready, retrying", { path, code: body.code, attempt: attempt + 1 });
-      await wait(delay);
+  /**
+   * 把打向飞书的请求限制在 MAX_CONCURRENT_READS 以内。超出的排队等前面的读完，
+   * 队列排满也不丢请求 —— 丢一个请求就是页面少一块数据。
+   *
+   * 槽位是直接移交的：释放时不减计数，由被唤醒的那个接手同一张票。这样就不会
+   * 出现「计数减了、等待者还没醒」的窗口，那个窗口里新来的请求会挤进来，
+   * 实际并发就会短暂超过上限 —— 而超限正是 1254607 的成因。
+   */
+  private async acquireSlot(): Promise<void> {
+    if (this.inFlight < MAX_CONCURRENT_READS) {
+      this.inFlight += 1;
+      return;
     }
+    await new Promise<void>((resolve) => this.waiters.push(resolve));
+  }
+
+  private releaseSlot(): void {
+    const next = this.waiters.shift();
+    if (next) {
+      next();
+      return;
+    }
+    this.inFlight -= 1;
+  }
+
+  private async withSlot<T>(work: () => Promise<T>): Promise<T> {
+    await this.acquireSlot();
+    try {
+      return await work();
+    } finally {
+      this.releaseSlot();
+    }
+  }
+
+  private async call<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const isRead = !init.method || init.method === "GET";
+    const run = async (): Promise<T> => {
+      const token = await this.auth.value();
+      for (let attempt = 0; ; attempt += 1) {
+        const response = await fetch(`${this.endpoint}/open-apis/bitable/v1/apps/${this.config.baseToken}${path}`, {
+          ...init,
+          headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...init.headers },
+          cache: "no-store",
+        });
+        const body = (await response.json()) as { code: number; msg: string; data?: T };
+        if (body.code === 0) return body.data as T;
+
+        const delay = RETRY_DELAYS_MS[attempt];
+        if (!isRead || !RETRYABLE_CODES.has(body.code) || delay === undefined) {
+          throw new Error(`bitable ${path} failed: ${body.code} ${body.msg}`);
+        }
+        console.warn("bitable request not ready, retrying", { path, code: body.code, attempt: attempt + 1 });
+        await wait(jitteredDelay(delay));
+      }
+    };
+
+    if (!isRead) return this.withSlot(run);
+
+    // 同一张表的并发读合并成一次飞书请求：既省了配额，也少一次排队。
+    const existing = this.inFlightReadsByPath.get(path);
+    if (existing) return existing as Promise<T>;
+
+    const pending = this.withSlot(run);
+    this.inFlightReadsByPath.set(path, pending);
+    const forget = () => {
+      if (this.inFlightReadsByPath.get(path) === pending) this.inFlightReadsByPath.delete(path);
+    };
+    pending.then(forget, forget);
+    return pending;
   }
 
   private async rows(tableId: string, fieldNames?: readonly string[]): Promise<Row[]> {

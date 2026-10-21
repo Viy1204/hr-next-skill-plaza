@@ -98,4 +98,89 @@ describe("page read queries", () => {
 
     expect(loadSkillEntries).toHaveBeenCalledTimes(2);
   });
+
+  it("serves the last good data when a later read fails", async () => {
+    let now = 1_000;
+    const entries = [
+      {
+        id: "entry-1",
+        name: "feishu-roster",
+        description: "导出花名册",
+        packageId: "pkg-1",
+        hrFunction: "HR 运营与共享服务" as const,
+        displayOrder: 1,
+        packageName: "飞书工具包",
+        packageTakeCount: 3,
+      },
+    ];
+    const loadSkillEntries = vi
+      .fn()
+      .mockResolvedValueOnce(entries)
+      .mockRejectedValueOnce(new Error("1254607 Data not ready"));
+    const queries = createPageReadQueries({
+      loadSkillEntries,
+      loadWishes: vi.fn().mockResolvedValue([]),
+      now: () => now,
+    });
+
+    await expect(queries.listSkillEntries()).resolves.toEqual(entries);
+
+    // 缓存过期后重新读，这一轮飞书挂了 —— 页面应退回上一次读到的数据，而不是整页报错。
+    now += 61_000;
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await expect(queries.listSkillEntries()).resolves.toEqual(entries);
+  });
+
+  it("keeps serving the last good data across a long quiet spell", async () => {
+    let now = 1_000;
+    const entries = [
+      {
+        id: "entry-1",
+        name: "feishu-roster",
+        description: "导出花名册",
+        packageId: "pkg-1",
+        hrFunction: "HR 运营与共享服务" as const,
+        displayOrder: 1,
+        packageName: "飞书工具包",
+        packageTakeCount: 3,
+      },
+    ];
+    const loadSkillEntries = vi
+      .fn()
+      .mockResolvedValueOnce(entries)
+      .mockRejectedValueOnce(new Error("1254607 Data not ready"));
+    const queries = createPageReadQueries({
+      loadSkillEntries,
+      loadWishes: vi.fn().mockResolvedValue([]),
+      now: () => now,
+    });
+
+    await expect(queries.listSkillEntries()).resolves.toEqual(entries);
+
+    // 低流量小站的常态：上一次访问是半小时前。这次读挂了，仍该用旧数据顶上，
+    // 而不是让首页又退化成「暂时没加载出来」。
+    now += 45 * 60_000;
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await expect(queries.listSkillEntries()).resolves.toEqual(entries);
+  });
+
+  it("gives up on the stale data once it is too old", async () => {
+    let now = 1_000;
+    const loadSkillEntries = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error("1254607 Data not ready"));
+    const queries = createPageReadQueries({
+      loadSkillEntries,
+      loadWishes: vi.fn().mockResolvedValue([]),
+      now: () => now,
+    });
+
+    await queries.listSkillEntries();
+
+    // 超过兜底窗口：宁可报错，也不拿一小时前的数据糊墙。
+    now += 61 * 60_000;
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await expect(queries.listSkillEntries()).rejects.toThrow("1254607 Data not ready");
+  });
 });
